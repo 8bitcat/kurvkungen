@@ -9,7 +9,9 @@ Vanilla JS + canvas, inga bibliotek, ingen byggprocess. All grafik är ritad med
 node tools/serve.mjs        # http://localhost:8803/
 ```
 
-Tangentbord: pilar/WASD kör, mellanslag skjuter, Z bakvapen, Shift nitro, R tillbaka på banan, Esc paus, M musik.
+Tangentbord: pilar/WASD kör, mellanslag skjuter, Z bakvapen, Shift nitro, T tuta, R tillbaka på banan, Esc paus, M musik.
+
+Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller gå med med rumskoden. Måste köras från en publicerad adress för att kompisar på andra datorer ska nå spelet.
 Handkontroll: RT gas, LT broms, X skjut, Y bakvapen, RB/klick i spak nitro. Mobil: liggande, autogas, knappar på skärmen.
 
 ## Hur det är byggt
@@ -35,3 +37,6 @@ Handkontroll: RT gas, LT broms, X skjut, Y bakvapen, RB/klick i spak nitro. Mobi
 | `tools/terrain.html?t=kanjonen&mode=overview` | hela banan ovanifrån |
 | `tools/cars.html` | alla bilar i alla vinklar |
 | `node tools/trackcheck.mjs` | banornas längd, kurvradier och avstånd |
+| `node tools/mp.mjs 15` | multiplayer med två webbläsare via PeerJS |
+| `node tools/djur.mjs sjoviken 5` | många djur framför bilen, skärmdumpar |
+| `tools/djur.html` | alla djur i alla poser |

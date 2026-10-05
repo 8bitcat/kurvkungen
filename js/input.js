@@ -12,6 +12,7 @@ addEventListener('keydown', (e) => {
   keys.add(e.code); input.lastDevice = 'kb';
   const a = MAP_ACT[e.code];
   if (a) actions.push(a);
+  if (/^Key[A-Z]$/.test(e.code)) actions.push({ ch: e.code.slice(3) });
   if (e.code === 'Escape') actions.push('pause');
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
 });

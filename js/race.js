@@ -42,7 +42,8 @@ export class Race {
       car.placeAt(T, g.i, g.lat);
       car.s = g.i * T.sp; car.progress = car.s - T.L;
       car.gridIndex = k;
-      if (!car.isPlayer || this.mode === 'attract' || opt.autopilot) car.ai = makeAI(c.skill ?? 0.5);
+      const human = car.isPlayer || car.human;
+      if (!human || this.mode === 'attract' || (car.isPlayer && opt.autopilot)) car.ai = makeAI(c.skill ?? 0.5);
       this.cars.push(car);
     });
     this.player = this.cars.find((c) => c.isPlayer) || null;
@@ -74,7 +75,8 @@ export class Race {
 
   tick(dt) {
     this.time += dt;
-    if (this.phase === 'countdown') {
+    if (this.phase === 'countdown' && this.hold) { /* väntar på gästerna */ }
+    else if (this.phase === 'countdown') {
       const before = Math.ceil(this.countdown);
       this.countdown -= dt;
       const after = Math.ceil(this.countdown);
@@ -92,7 +94,7 @@ export class Race {
         c.rubber = gap < -120 ? 1 + Math.min(0.12, (-gap - 120) / 2500) : gap > 200 ? 1 - Math.min(0.1 - sk * 0.05, (gap - 200) / 3000) : 1;
       } else c.rubber = 1;
       if (!racing) { c.vx = c.vy = 0; continue; }
-      if (c.finished && c.isPlayer && this.mode !== 'attract') { c.inp.gas = 0.4; c.inp.brake = 0; c.inp.fire = c.inp.rear = false; }
+      if (c.finished && (c.isPlayer || c.human) && this.mode !== 'attract') { c.inp.gas = 0.4; c.inp.brake = 0; c.inp.fire = c.inp.rear = false; }
       c.step(dt, this);
       this.rescue(c, dt);
       this.weapons(c, dt);
@@ -115,7 +117,8 @@ export class Race {
     c.progT = (c.progT || 0) + dt;
     if (c.progMark === undefined) c.progMark = c.progress;
     const off = c.dist > c.hw + 8;
-    const limit = off ? (c.isPlayer && !c.ai ? 3.5 : 2.5) : (c.isPlayer && !c.ai ? 1e9 : 5);
+    const hum = (c.isPlayer || c.human) && !c.ai;
+    const limit = off ? (hum ? 3.5 : 2.5) : (hum ? 1e9 : 5);
     if (c.progT > limit) {
       if (c.progress - c.progMark < 50) { this.respawn(c); if (c.isPlayer) this.events('rescue', c); }
       c.progT = 0; c.progMark = c.progress;
@@ -253,7 +256,7 @@ export class Race {
           const d = Math.sqrt(d2) || 0.01, nx = dx / d, ny = dy / d;
           if (p.dyn) { // kon: flyger iväg
             p.down = true; p.vx = c.vx * 1.1 + nx * -40 + (Math.random() - 0.5) * 60; p.vy = c.vy * 1.1 + ny * -40 + (Math.random() - 0.5) * 60; p.vz = 60 + Math.random() * 60; p.zz = 0; p.spr = CONE_DOWN; p.r = 0;
-            this.events('cone', c);
+            this.events('cone', c, null, null, this.world.props.indexOf(p), [Math.round(p.vx), Math.round(p.vy), Math.round(p.vz)]);
             break;
           }
           // tunga fordon knäcker träd och buskar
@@ -261,7 +264,7 @@ export class Race {
             this.world.fell(p);
             for (let k = 0; k < 18; k++) this.fx.add('leaf', p.x, p.y, p.z + 10 + Math.random() * 14, (Math.random() - 0.5) * 120 + c.vx * 0.3, (Math.random() - 0.5) * 120 + c.vy * 0.3, Math.random() * 60, 0.8 + Math.random() * 0.6, 2, 160, 2);
             c.vx *= 0.85; c.vy *= 0.85;
-            this.events('fell', c, p);
+            this.events('fell', c, null, null, this.world.props.indexOf(p));
             break;
           }
           c.x += nx * (R - d); c.y += ny * (R - d);
@@ -337,11 +340,11 @@ export class Race {
       const bx = c.x - fx * (c.len / 2 + 3), by = c.y - fy * (c.len / 2 + 3);
       switch (c.rearW) {
         case 'minor': this.mines.push({ x: bx, y: by, z: c.z, arm: 0.7, by: c, t: 40, dmg: 22 * lvlR }); break;
-        case 'olja': this.oils.push({ x: bx - fx * 8, y: by - fy * 8, z: c.z, t: 14, r: 15 + c.rearLvl * 2, spr: oilSprite((Math.random() * 99) | 0), by: c }); break;
+        case 'olja': { const sd = (Math.random() * 99) | 0; this.oils.push({ x: bx - fx * 8, y: by - fy * 8, z: c.z, t: 14, r: 15 + c.rearLvl * 2, seed: sd, spr: oilSprite(sd), by: c }); break; }
         case 'rok': c.smokeT = 2.6 + c.rearLvl * 0.6; break;
         case 'spikar': this.spikes.push({ x: bx - fx * 4, y: by - fy * 4, z: c.z, ang: c.ang + Math.PI / 2, len: 24 + c.rearLvl * 3, t: 18, by: c }); break;
         case 'fat': this.barrels.push({ x: bx, y: by, z: c.z, vx: c.vx * 0.3 - fx * 30, vy: c.vy * 0.3 - fy * 30, t: 30, by: c, dmg: 24 * lvlR, arm: 0.5 }); break;
-        case 'lim': this.glues.push({ x: bx - fx * 8, y: by - fy * 8, z: c.z, t: 14, r: 16 + c.rearLvl * 2, spr: glueSprite((Math.random() * 99) | 0), by: c }); break;
+        case 'lim': { const sd = (Math.random() * 99) | 0; this.glues.push({ x: bx - fx * 8, y: by - fy * 8, z: c.z, t: 14, r: 16 + c.rearLvl * 2, seed: sd, spr: glueSprite(sd), by: c }); break; }
         case 'bakraket':
           this.missiles.push({ x: bx, y: by, z: c.z + 5, ang: c.ang + Math.PI, sp: 140, t: 2.6, by: c, dmg: 24 * lvlR, target: this.findTarget(c, -1) });
           this.events('missile', c);
@@ -578,7 +581,7 @@ export class Race {
         else if (p.kind === 'reparera') c.dmg = Math.max(0, c.dmg - 35);
         else if (p.kind === 'ammo') { c.ammoF = Math.min(c.maxF, c.ammoF + Math.ceil(c.maxF * 0.5)); c.ammoR = Math.min(c.maxR, c.ammoR + Math.ceil(c.maxR * 0.5)); }
         else if (p.kind === 'nitro') c.nitro = Math.min(c.st.nitro + 2, c.nitro + 1);
-        this.events('pick', c, p.kind);
+        this.events('pick', c, p.kind, null, this.picks.indexOf(p));
         this.fx.sparks(p.x, p.y, p.z + 6, 8, 80);
         break;
       }
@@ -598,7 +601,8 @@ export class Race {
         if (lap >= this.laps && this.mode !== 'attract') {
           c.finished = true; c.finishTime = this.raceTime; this.finishOrder.push(c);
           this.events('finish', c, this.finishOrder.length);
-          if (c.isPlayer) { this.phase = 'finish'; this.endT = 0; }
+          if ((c.isPlayer || c.human) && this.phase !== 'finish' && this.cars.filter((h) => h.isPlayer || h.human).every((h) => h.finished)) { this.phase = 'finish'; this.endT = 0; }
+          if ((c.isPlayer || c.human) && !this.firstHuman) this.firstHuman = this.raceTime;
         } else this.events('lap', c, lap);
       }
       c.lap = Math.max(c.lap, lap);
@@ -610,6 +614,8 @@ export class Race {
     });
     order.forEach((c, k) => { c.place = k + 1; });
     this.order = order;
+    // flera människor: loppet tar slut senast 45 s efter att den första gått i mål
+    if (this.phase === 'race' && this.firstHuman && this.raceTime - this.firstHuman > 45) { this.phase = 'finish'; this.endT = 99; }
     if (this.phase === 'finish') {
       this.endT += dt;
       const allDone = this.cars.every((c) => c.finished);

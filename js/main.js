@@ -13,6 +13,9 @@ import { CARS, CAR_ORDER, UPGRADES, UPG_ORDER, FRONT, REAR, DRIVERS, ACCESSORIES
 import { TRACKS, TRACK_ORDER, BASE_TRACKS, trackName, THEMES } from './tracks.js?v=1';
 import { VERSION } from './version.js?v=1';
 import { css } from './pix.js?v=1';
+import { Host, Client, snapshot } from './net.js?v=1';
+import { Mirror } from './mirror.js?v=1';
+import { makeAI } from './ai.js?v=1';
 
 const Q = new URLSearchParams(location.search);
 const canvas = document.getElementById('game');
@@ -70,6 +73,7 @@ function onEvent(type, a, b, c) {
   const R = G.race, hud = G.hud, P = R && R.player;
   if (!R || R !== G.race) return;
   G.stats[type] = (G.stats[type] || 0) + 1;
+  if (NET.role === 'host' && NET_EVENTS.has(type)) NET.host.broadcast({ t: 'e', k: type, a: ser(R, a), b: ser(R, b), c: ser(R, c), d: arguments[4] ?? null, e: arguments[5] ?? null });
   const att = R.mode === 'attract';
   const v = (o) => (att ? near(o) * 0.35 : near(o));
   switch (type) {
@@ -187,7 +191,8 @@ async function startRace(cfg) {
   G.world = w;
   const cars = [];
   const pc = playerCarCfg();
-  if (cfg.mode === 'time') cars.push(pc);
+  if (cfg.carsList) cars.push(...cfg.carsList.map((c, k) => (k === cfg.myIndex && NET.role !== 'guest' ? { ...pc, ...c, isPlayer: true, human: false } : { ...c })));
+  else if (cfg.mode === 'time') cars.push(pc);
   else {
     // spelaren startar längst bak i mästerskapets första lopp, annars efter placering
     const opp = cfg.opponents;
@@ -197,6 +202,7 @@ async function startRace(cfg) {
   G.stats = {};
   const R = new Race(w, { mode: cfg.mode, laps: cfg.laps, cars, events: onEvent, autopilot: cfg.autopilot, night: TRACKS[cfg.track].night });
   G.race = R; G.hud = new Hud(R);
+  if (NET.role === 'guest') { NET.mirror = new Mirror(R, cfg.myIndex); }
   const pl = R.player;
   G.cam.x = pl.x; G.cam.y = pl.y; G.cam.z = pl.z;
   // förrendera bilarna i bitar och vänta in rutorna runt start
@@ -213,6 +219,7 @@ async function startRace(cfg) {
     tick();
   });
   G.state = 'race';
+  if (NET.role === 'guest') NET.client.send({ t: 'ready' });
   layoutTouch();
   startMusic(TRACKS[cfg.track].night || Math.random() < 0.5 ? 'nattpatrull' : 'race');
   makeEngines(2);
@@ -230,6 +237,7 @@ function mainMenu() {
     { label: 'MÄSTERSKAP', ok: () => { sfx('ok'); G.menu = cupMenu(); G.state = 'sub'; }, info: () => 'FEM CUPER. VINN PENGAR, KÖP FORDON OCH VAPEN.' },
     { label: 'SNABBT LOPP', ok: () => { sfx('ok'); G.menu = quickMenu(); G.state = 'sub'; }, info: () => 'VÄLJ BANA OCH MOTSTÅNDARE.' },
     { label: 'TIDSJAKT', ok: () => { sfx('ok'); G.menu = timeMenu(); G.state = 'sub'; }, info: () => 'ENSAM PÅ BANAN. SLÅ DITT BÄSTA VARV.' },
+    { label: 'SPELA ONLINE', ok: () => { sfx('ok'); G.menu = onlineMenu(); G.state = 'sub'; }, info: () => 'KÖR MOT KOMPISAR MED EN RUMSKOD.' },
     { label: 'GARAGET', ok: () => { sfx('ok'); openGarage(() => go('menu')); }, info: () => `${save.money} KR I KASSAN` },
     { label: 'INSTÄLLNINGAR', ok: () => { sfx('ok'); G.menu = settingsMenu(); G.state = 'sub'; } },
   ], { w: 190, back: () => { G.state = 'title'; } });
@@ -408,6 +416,8 @@ function drawGarage(t) {
 function showResults() {
   const R = G.race, cfg = G.cfg, P = R.player;
   stopEngines();
+  NET.inRace = false;
+  if (NET.role === 'host') NET.host.broadcast({ t: 'res', order: R.finishOrder.map((c) => [R.cars.indexOf(c), c.finishTime, c.bestLap || 0, c.kills, c.roadkill, c.money]) });
   const res = { rows: [], money: 0, cfg };
   if (cfg.mode === 'time') {
     const best = P.bestLap;
@@ -511,6 +521,7 @@ function resultsNext() {
   afterRace();
 }
 function afterRace() {
+  if (NET.role) { G.results = null; startAttract(); openLobby(); startMusic('menu'); return; }
   // tillbaka till menyn med loppets bana som bakgrund
   G.results = null;
   startAttract();
@@ -518,8 +529,225 @@ function afterRace() {
   startMusic('menu');
 }
 
+// ---------- online ----------
+const NET = { role: null, host: null, client: null, code: '', players: [], lobby: { track: 0, rev: false, night: false, laps: 3, ai: 3 }, mirror: null, pidCar: {}, sendT: 0, snapT: 0, err: '', typed: '', ready: new Set(), inRace: false };
+const NAMES = ['KURV-KALLE', 'SLADD-STINA', 'TURBO-TAGE', 'GAS-GRETA', 'PLÅT-PER', 'NITRO-NORA', 'DÄCK-DANNE', 'KROCK-KAJSA', 'VRÅL-VERA', 'BROMS-BOSSE', 'ÄLG-ELSA', 'MOS-MATTE'];
+const myName = () => save.settings.name || (save.settings.name = NAMES[(Math.random() * NAMES.length) | 0]);
+const NET_EVENTS = new Set(['count', 'go', 'lap', 'finish', 'wreck', 'splash', 'crash', 'bump', 'pick', 'gun', 'missile', 'boom', 'rear', 'nitro', 'oil', 'cone', 'hit', 'rescue', 'cannon', 'laser', 'flame', 'zap', 'spike', 'glue', 'splat', 'animal', 'moose', 'thud', 'fell', 'lava', 'land']);
+function ser(R, x) {
+  if (x == null || typeof x !== 'object') return x ?? null;
+  const ci = R.cars.indexOf(x);
+  if (ci >= 0) return { c: ci };
+  if ('x' in x) return { x: Math.round(x.x), y: Math.round(x.y), z: Math.round(x.z || 0), vx: x.vx ? Math.round(x.vx) : 0, vy: x.vy ? Math.round(x.vy) : 0, type: x.type };
+  return null;
+}
+function deser(R, x) { if (x == null || typeof x !== 'object') return x; if ('c' in x) return R.cars[x.c]; return x; }
+function onlineMenu() {
+  return new Menu('SPELA ONLINE', [
+    { label: 'SKAPA RUM', ok: () => { sfx('ok'); hostRoom(); }, info: () => 'DU BLIR VÄRD. KOMPISARNA SKRIVER IN KODEN.' },
+    { label: 'GÅ MED I RUM', ok: () => { sfx('ok'); NET.typed = ''; NET.err = ''; G.state = 'code'; layoutTouch(); }, info: () => 'SKRIV IN KODEN DU FÅTT AV VÄRDEN.' },
+    { label: 'DITT NAMN', value: () => myName(), left: () => { const i = NAMES.indexOf(myName()); save.settings.name = NAMES[(i + NAMES.length - 1) % NAMES.length]; persist(); }, right: () => { const i = NAMES.indexOf(myName()); save.settings.name = NAMES[(i + 1) % NAMES.length]; persist(); } },
+    { label: 'TILLBAKA', ok: backToMain },
+  ], { w: 240, back: backToMain });
+}
+function myCfg() { const c = playerCarCfg(); return { ...c, name: myName(), isPlayer: false }; }
+async function hostRoom() {
+  G.state = 'loading'; G.msg = 'SKAPAR RUM'; G.loadP = 0.5;
+  const H = new Host();
+  try { await H.open(); } catch (e) { NET.err = 'KUNDE INTE SKAPA RUM: ' + String(e.message || e).toUpperCase(); G.menu = onlineMenu(); G.state = 'sub'; G.hud && G.hud.say(NET.err, 3, GRAD.red, false); return; }
+  Object.assign(NET, { role: 'host', host: H, code: H.code, players: [{ pid: 0, name: myName(), cfg: myCfg() }], inRace: false, ready: new Set() });
+  H.onJoin = () => {};
+  H.onLeave = (pid) => {
+    NET.players = NET.players.filter((p) => p.pid !== pid);
+    const R = G.race;
+    if (NET.inRace && R && NET.pidCar[pid] != null) { const c = R.cars[NET.pidCar[pid]]; c.human = false; c.ai = makeAI(0.5); G.hud.say(c.name.toUpperCase() + ' LÄMNADE', 2, GRAD.white, false); }
+    lobbyBroadcast();
+  };
+  H.onMsg = (pid, m) => {
+    if (m.t === 'hello') {
+      if (NET.inRace) { H.send(pid, { t: 'busy' }); return; }
+      if (NET.players.length >= 8) { H.send(pid, { t: 'full' }); return; }
+      NET.players.push({ pid, name: String(m.name || 'GÄST').slice(0, 14).toUpperCase(), cfg: m.cfg });
+      sfx('pick'); lobbyBroadcast();
+    } else if (m.t === 'i') {
+      const R = G.race, k = NET.pidCar[pid];
+      if (!R || k == null || !NET.inRace) return;
+      const c = R.cars[k];
+      if (!c || !c.human) return;
+      c.inp.steer = Math.max(-1, Math.min(1, +m.s || 0)); c.inp.gas = m.g ? 1 : 0; c.inp.brake = m.b ? 1 : 0; c.inp.fire = !!m.f; c.inp.rear = !!m.r; c.inp.nitro = !!m.n;
+    } else if (m.t === 'h') { const R = G.race, c = R && R.cars[NET.pidCar[pid]]; if (c && c.st.horn) R.animals.scare(c.x, c.y, 160); }
+    else if (m.t === 'reset') { const R = G.race, c = R && R.cars[NET.pidCar[pid]]; if (c && R.phase === 'race' && c.wreckT <= 0) R.respawn(c); }
+    else if (m.t === 'ready') NET.ready.add(pid);
+  };
+  openLobby();
+}
+const lobbyTrack = () => BASE_TRACKS[NET.lobby.track] + (NET.lobby.rev ? '_r' : '') + (NET.lobby.night ? '_n' : '');
+function lobbyBroadcast() {
+  if (NET.role !== 'host') return;
+  NET.host.broadcast({ t: 'lobby', code: NET.code, players: NET.players.map((p) => ({ name: p.name, carId: p.cfg.carId, color: p.cfg.color })), track: lobbyTrack(), laps: NET.lobby.laps, ai: NET.lobby.ai });
+}
+function openLobby() {
+  G.state = 'lobby';
+  if (NET.role === 'host') {
+    const L = NET.lobby, ch = () => { lobbyBroadcast(); };
+    G.menu = new Menu('RUM ' + NET.code, [
+      { label: 'BANA', value: () => TRACKS[BASE_TRACKS[L.track]].name.toUpperCase(), left: () => { L.track = (L.track + BASE_TRACKS.length - 1) % BASE_TRACKS.length; ch(); }, right: () => { L.track = (L.track + 1) % BASE_TRACKS.length; ch(); } },
+      { label: 'RIKTNING', value: () => (L.rev ? 'BAKLÄNGES' : 'FRAMÅT'), left: () => { L.rev = !L.rev; ch(); }, right: () => { L.rev = !L.rev; ch(); }, ok: () => { L.rev = !L.rev; ch(); } },
+      { label: 'TID', value: () => (L.night ? 'NATT' : 'DAG'), left: () => { L.night = !L.night; ch(); }, right: () => { L.night = !L.night; ch(); }, ok: () => { L.night = !L.night; ch(); } },
+      { label: 'VARV', value: () => L.laps, left: () => { L.laps = Math.max(1, L.laps - 1); ch(); }, right: () => { L.laps = Math.min(9, L.laps + 1); ch(); } },
+      { label: 'DATORBILAR', value: () => L.ai, left: () => { L.ai = Math.max(0, L.ai - 1); ch(); }, right: () => { L.ai = Math.min(7, L.ai + 1); ch(); } },
+      { label: 'STARTA LOPPET!', ok: () => { sfx('ok'); hostStart(); }, info: () => `${NET.players.length} SPELARE + ${L.ai} DATORBILAR` },
+      { label: 'STÄNG RUMMET', ok: () => { sfx('back'); leaveOnline(); } },
+    ], { w: 230, back: () => leaveOnline(), rowH: 14 });
+    lobbyBroadcast();
+  } else {
+    G.menu = new Menu('RUM ' + NET.code, [
+      { label: 'GARAGET', ok: () => { sfx('ok'); openGarage(() => { NET.client.send({ t: 'hello', name: myName(), cfg: myCfg() }); openLobby(); }); }, info: () => 'BYT FORDON INNAN VÄRDEN STARTAR' },
+      { label: 'LÄMNA RUMMET', ok: () => { sfx('back'); leaveOnline(); } },
+    ], { w: 230, back: () => leaveOnline() });
+  }
+  layoutTouch();
+}
+function hostStart() {
+  const L = NET.lobby;
+  const track = lobbyTrack();
+  const humans = NET.players.map((p) => ({ ...p.cfg, name: p.name, human: p.pid !== 0, isPlayer: false, pid: p.pid }));
+  // samma färg på två spelare? ge den senare en ledig färg
+  const used = new Set();
+  for (const h of humans) { if (used.has(h.color)) h.color = CAR_COLORS.find((c) => !used.has(c)) ?? h.color; used.add(h.color); }
+  const ai = (L.ai ? makeOpponents(CUPS[1], L.ai) : []).map((o) => (used.has(o.color) ? { ...o, color: CAR_COLORS.find((c) => !used.has(c) && (used.add(c), true)) ?? o.color } : (used.add(o.color), o)));
+  const list = [...ai, ...humans.sort(() => Math.random() - 0.5)];
+  NET.pidCar = {};
+  list.forEach((c, k) => { if (c.pid != null) NET.pidCar[c.pid] = k; });
+  const clean = list.map(({ pid, ...c }) => c);
+  NET.ready = new Set(); NET.inRace = true;
+  for (const p of NET.players) if (p.pid !== 0) NET.host.send(p.pid, { t: 'start', track, laps: L.laps, cars: clean.map((c) => ({ ...c, isPlayer: false })), me: NET.pidCar[p.pid] });
+  startRace({ track, laps: L.laps, mode: 'race', carsList: clean, myIndex: NET.pidCar[0], prizeMul: 0.4, online: true }).then(() => {
+    // vänta (högst 20 s) på att gästerna laddat klart innan nedräkningen går
+    const R = G.race; R.countdown = 3.6; R.hold = true;
+    const t0 = performance.now();
+    const wait = () => { if (G.race !== R) return; if (NET.players.every((p) => p.pid === 0 || NET.ready.has(p.pid)) || performance.now() - t0 > 20000) R.hold = false; else setTimeout(wait, 100); };
+    wait();
+  });
+}
+async function joinRoom(code) {
+  G.state = 'loading'; G.msg = 'ANSLUTER TILL ' + code; G.loadP = 0.5;
+  const C = new Client();
+  try { await C.join(code); } catch (e) { NET.err = String(e.message || e).toUpperCase(); G.state = 'code'; NET.typed = ''; return; }
+  Object.assign(NET, { role: 'guest', client: C, code, players: [], inRace: false });
+  C.onMsg = (m) => {
+    if (m.t === 'lobby') { NET.players = m.players; NET.lobbyInfo = m; }
+    else if (m.t === 'busy' || m.t === 'full') { NET.err = m.t === 'busy' ? 'LOPPET HAR REDAN BÖRJAT' : 'RUMMET ÄR FULLT'; leaveOnline(true); }
+    else if (m.t === 'start') { NET.inRace = true; startRace({ track: m.track, laps: m.laps, mode: 'race', carsList: m.cars, myIndex: m.me, prizeMul: 0.4, online: true }); }
+    else if (m.t === 's') { if (NET.mirror && G.race && G.race.mirror) NET.mirror.push(m); }
+    else if (m.t === 'e') {
+      const R = G.race;
+      if (!R || !R.mirror || !NET.mirror) return;
+      const A = deser(R, m.a), B = deser(R, m.b), Cc = deser(R, m.c);
+      NET.mirror.fxEvent(m.k, A, B, Cc, m.d, m.e);
+      if (m.k !== 'done') onEvent(m.k, A, B, Cc, m.d, m.e);
+    } else if (m.t === 'res') guestResults(m.order);
+  };
+  C.onClose = () => { if (NET.role === 'guest') { NET.err = 'VÄRDEN LÄMNADE RUMMET'; leaveOnline(true); } };
+  C.send({ t: 'hello', name: myName(), cfg: myCfg() });
+  openLobby();
+}
+function guestResults(order) {
+  const R = G.race;
+  if (!R) return;
+  NET.inRace = false;
+  stopEngines();
+  const me = NET.mirror ? NET.mirror.me : -1;
+  const res = { rows: [], money: 0, cfg: G.cfg };
+  order.forEach(([idx, time, best, kills, roadkill, money], k) => {
+    const c = R.cars[idx], prize = Math.round((PRIZES[k] || 0) * 0.4);
+    res.rows.push({ name: idx === me ? 'DU' : c.name.toUpperCase(), time, best, prize, me: idx === me, color: c.color, kills });
+    if (idx === me) { res.place = k + 1; res.prize = prize; res.pickup = money; res.money = prize + money; res.roadkill = roadkill; res.kills = kills; }
+  });
+  save.money += res.money || 0; persist();
+  G.results = res; G.state = 'results';
+  NET.mirror = null;
+  startMusic('menu');
+}
+function leaveOnline(showErr = false) {
+  const wasRole = NET.role;
+  if (NET.host) { NET.host.broadcast({ t: 'bye' }); NET.host.close(); }
+  if (NET.client) NET.client.close();
+  Object.assign(NET, { role: null, host: null, client: null, mirror: null, inRace: false, players: [] });
+  stopEngines();
+  if (G.race && G.race.mode !== 'attract') startAttract();
+  G.menu = onlineMenu(); G.state = 'sub';
+  if (showErr && NET.err) G.hud.say(NET.err, 3, GRAD.red, false);
+  startMusic('menu');
+  layoutTouch();
+  void wasRole;
+}
+function codeAction(a) {
+  if (a && a.ch && /^[A-Z]$/.test(a.ch) && NET.typed.length < 4) { NET.typed += a.ch; sfx('menu'); }
+  else if (a === 'back' && NET.typed.length) NET.typed = NET.typed.slice(0, -1);
+  else if (a === 'back' || a === 'exit') { G.menu = onlineMenu(); G.state = 'sub'; }
+  else if (a === 'ok' && NET.typed.length === 4) { sfx('ok'); joinRoom(NET.typed); }
+  else if (a && a.tap) {
+    for (const b of codeKeys) if (a.tap[0] >= b.x && a.tap[0] < b.x + b.w && a.tap[1] >= b.y && a.tap[1] < b.y + b.h) {
+      if (b.k === '<') codeAction('back'); else if (b.k === 'OK') codeAction('ok'); else if (b.k === 'X') codeAction('exit'); else codeAction({ ch: b.k });
+      return;
+    }
+  }
+}
+let codeKeys = [];
+function drawCode(t) {
+  dimBg(0.55);
+  const W = Math.min(VW - 16, 330), X = Math.round(VW / 2 - W / 2);
+  panel(ctx, X, 10, W, VH - 20);
+  drawText(ctx, 'GÅ MED I RUM', VW / 2, 18, { big: true, grad: GRAD.gold, align: 'c' });
+  drawText(ctx, 'SKRIV RUMSKODEN', VW / 2, 32, { color: 0xd8d4e8, align: 'c' });
+  for (let k = 0; k < 4; k++) {
+    const bx = Math.round(VW / 2 - 52 + k * 27);
+    ctx.fillStyle = '#1a1426'; ctx.fillRect(bx, 42, 22, 26);
+    ctx.fillStyle = k === NET.typed.length && ((t * 3) | 0) % 2 ? '#f2c21c' : '#3a3450'; ctx.fillRect(bx + 1, 66, 20, 2);
+    if (NET.typed[k]) drawText(ctx, NET.typed[k], bx + 11, 47, { big: true, scale: 2, grad: GRAD.white, align: 'c' });
+  }
+  if (NET.err) drawText(ctx, NET.err, VW / 2, 74, { color: 0xff7060, align: 'c' });
+  // tangentbord på skärmen
+  const keys = [...'ABCDEFGHJKLMNPQRSTUVWXYZ', '<', 'OK', 'X'];
+  codeKeys = [];
+  const kw = 22, kh = 16, cols = 9, kx0 = Math.round(VW / 2 - (cols * (kw + 3)) / 2);
+  keys.forEach((k, i) => {
+    const x = kx0 + (i % cols) * (kw + 3), y = 86 + Math.floor(i / cols) * (kh + 3);
+    ctx.fillStyle = k === 'OK' ? '#2f8f46' : k === 'X' ? '#9e1b22' : '#2a2640'; ctx.fillRect(x, y, kw, kh);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(x, y, kw, 1);
+    drawText(ctx, k, x + kw / 2, y + 5, { color: 0xffffff, align: 'c' });
+    codeKeys.push({ k, x, y, w: kw, h: kh });
+  });
+  drawText(ctx, input.touch ? 'TRYCK PÅ BOKSTÄVERNA' : 'SKRIV MED TANGENTBORDET · ENTER = ANSLUT · ESC = TILLBAKA', VW / 2, VH - 22, { color: 0x9a94b0, align: 'c' });
+}
+function drawLobby(t) {
+  dimBg(0.5);
+  const r = G.menu.draw(ctx, VW, VH, t, VW - 240, 10, 232);
+  const LW = Math.max(150, VW - 240 - 18), LX = 8;
+  panel(ctx, LX, 10, LW, Math.max(r.H, 150), 'rgba(20,16,40,0.8)', '#6a6488');
+  drawText(ctx, 'RUMSKOD', LX + LW / 2, 18, { color: 0xd8d4e8, align: 'c' });
+  drawText(ctx, NET.code, LX + LW / 2, 28, { big: true, scale: 3, grad: GRAD.gold, align: 'c' });
+  const info = NET.role === 'host' ? { track: lobbyTrack(), laps: NET.lobby.laps, ai: NET.lobby.ai } : NET.lobbyInfo;
+  if (info) drawText(ctx, `${trackName(info.track)} · ${info.laps} VARV · ${info.ai} DATORBILAR`, LX + LW / 2, 56, { color: 0xffe080, align: 'c' });
+  const list = NET.role === 'host' ? NET.players.map((p) => ({ name: p.name, carId: p.cfg.carId, color: p.cfg.color })) : NET.players;
+  drawText(ctx, `SPELARE (${list.length})`, LX + 8, 70, { color: 0x9a94b0 });
+  list.forEach((p, k) => {
+    const y = 80 + k * 10;
+    ctx.fillStyle = '#1a1426'; ctx.fillRect(LX + 8, y - 1, 7, 7); ctx.fillStyle = css(p.color); ctx.fillRect(LX + 9, y, 5, 5);
+    drawText(ctx, `${p.name}${k === 0 ? ' (VÄRD)' : ''}`, LX + 20, y, { color: 0xffffff });
+    drawText(ctx, (CARS[p.carId] ? CARS[p.carId].name : '').toUpperCase(), LX + LW - 8, y, { color: 0xc8c0a0, align: 'r' });
+  });
+  if (NET.role === 'guest' && ((t * 2) | 0) % 2) drawText(ctx, 'VÄNTAR PÅ ATT VÄRDEN STARTAR...', LX + LW / 2, 80 + list.length * 10 + 8, { color: 0xd8d4e8, align: 'c' });
+  if (NET.role === 'host' && list.length < 2) drawText(ctx, 'BE KOMPISARNA VÄLJA "GÅ MED I RUM"', LX + LW / 2, 80 + list.length * 10 + 8, { color: 0xd8d4e8, align: 'c' });
+}
+
 // ---------- paus ----------
 function pauseMenu() {
+  if (NET.role) return new Menu('ONLINE', [
+    { label: 'FORTSÄTT', ok: () => { sfx('ok'); G.state = 'race'; layoutTouch(); } },
+    { label: 'LÄMNA LOPPET', ok: () => { sfx('back'); leaveOnline(); } },
+  ], { w: 170, back: () => { G.state = 'race'; layoutTouch(); } });
   return new Menu('PAUS', [
     { label: 'FORTSÄTT', ok: () => { sfx('ok'); G.state = 'race'; layoutTouch(); } },
     { label: 'STARTA OM', ok: () => { sfx('ok'); startRace(G.cfg); } },
@@ -581,10 +809,15 @@ function frameBody(now) {
     const p = G.state === 'boot' ? (G.world ? 1 : (t * 0.6) % 1) : G.loadP;
     ctx.fillStyle = '#f2c21c'; ctx.fillRect(VW / 2 - bw / 2, VH * 0.66, Math.round(bw * p), 4);
   } else if (R) {
-    const racing = G.state === 'race';
+    const racing = G.state === 'race' || (G.state === 'pause' && NET.role && R.mode !== 'attract');
     const steps = racing || R.mode === 'attract' ? (Q.has('fast') ? FAST : 1) : 0;
-    if (racing && R.player && !R.player.ai) driveInput(R.player.inp);
-    for (let k = 0; k < steps; k++) R.update(dt);
+    if (G.state === 'race' && R.player && !R.player.ai) driveInput(R.player.inp);
+    if (R.mirror && NET.mirror) {
+      NET.mirror.update(dt); NET.mirror.tickProps(dt);
+      NET.sendT -= dt;
+      if (NET.sendT <= 0 && G.state === 'race') { const i = R.player.inp; NET.client.send({ t: 'i', s: +i.steer.toFixed(2), g: i.gas, b: i.brake, f: i.fire ? 1 : 0, r: i.rear ? 1 : 0, n: i.nitro ? 1 : 0 }); NET.sendT = 0.033; }
+    } else for (let k = 0; k < steps; k++) R.update(dt);
+    if (NET.role === 'host' && R.mode !== 'attract' && (G.state === 'race' || G.state === 'pause' || G.state === 'results')) { NET.snapT -= dt; if (NET.snapT <= 0) { NET.host.broadcast(snapshot(R)); NET.snapT = 0.05; } }
     // kamera
     let target = R.player;
     if (R.mode === 'attract') {
@@ -610,6 +843,8 @@ function frameBody(now) {
     else if (G.state === 'garage') drawGarage(t);
     else if (G.state === 'pause') { dimBg(0.5); G.menu.draw(ctx, VW, VH, t); }
     else if (G.state === 'results' || G.state === 'standings') drawResults(t);
+    else if (G.state === 'lobby') drawLobby(t);
+    else if (G.state === 'code') drawCode(t);
     drawTouch();
   }
   sctx.imageSmoothingEnabled = false;
@@ -618,11 +853,15 @@ function frameBody(now) {
 }
 
 function handle(a) {
+  if (G.state === 'code') { codeAction(a); return; }
   if (a === 'music') { toggleMusic(); return; }
   const st = G.state;
   if (st === 'title') { if (a === 'ok' || (a && a.tap)) { sfx('ok'); G.menu = mainMenu(); G.state = 'menu'; } return; }
+  if (st === 'code') { codeAction(a); return; }
+  if (st === 'lobby') { if (a !== 'pause') G.menu.action(a); return; }
   if (st === 'menu' || st === 'sub' || st === 'garage' || st === 'pause') { if (a === 'pause' && st === 'pause') { G.state = 'race'; layoutTouch(); return; } if (a !== 'pause') G.menu.action(a); return; }
-  if (st === 'race' && a === 'horn') { const P = G.race.player; if (P && P.st.horn) { sfx('horn'); G.race.animals.scare && G.race.animals.scare(P.x, P.y, 160); } return; }
+  if (st === 'race' && a === 'horn') { const P = G.race.player; if (P && P.st.horn) { sfx('horn'); if (NET.role === 'guest') NET.client.send({ t: 'h' }); else G.race.animals.scare(P.x, P.y, 160); } return; }
+  if (st === 'race' && NET.role === 'guest' && a === 'reset') { NET.client.send({ t: 'reset' }); return; }
   if (st === 'race') { if (a === 'reset' && G.race.player && G.race.phase === 'race' && G.race.player.wreckT <= 0) { G.race.respawn(G.race.player); return; } if (a === 'pause') { G.menu = pauseMenu(); G.state = 'pause'; layoutTouch(); stopEnginesQuiet(); } return; }
   if (st === 'results' || st === 'standings') { if (a === 'ok' || (a && a.tap)) resultsNext(); }
 }
@@ -640,5 +879,5 @@ boot().catch((e) => { console.error(e); G.msg = 'FEL: ' + e.message; });
 requestAnimationFrame(frame);
 
 // testkrokar
-window.KK = { G, startRace, CUPS, save };
+window.KK = { G, startRace, CUPS, save, NET, hostRoom, joinRoom, hostStart };
 void THEMES; void TRACKS; void carSprite; void tw; void stopMusic; void REAR;
