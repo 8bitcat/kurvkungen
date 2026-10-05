@@ -510,6 +510,13 @@ let last = performance.now();
 const FAST = +(Q.get('fast') || 1);
 function frame(now) {
   requestAnimationFrame(frame);
+  const f0 = performance.now();
+  frameBody(now);
+  const ms = performance.now() - f0;
+  G.ms = G.ms ? G.ms * 0.95 + ms * 0.05 : ms; G.msMax = Math.max((G.msMax || 0) * 0.995, ms);
+  if (Q.has('fps')) { sctx.fillStyle = '#000'; sctx.fillRect(0, 0, 160, 22); sctx.fillStyle = '#0f0'; sctx.font = '14px monospace'; sctx.fillText(`${G.ms.toFixed(1)} ms (max ${G.msMax.toFixed(0)})`, 4, 16); }
+}
+function frameBody(now) {
   let dt = Math.min(0.05, (now - last) / 1000); last = now;
   G.t += dt;
   const t = G.t;

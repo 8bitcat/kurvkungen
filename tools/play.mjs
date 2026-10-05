@@ -21,7 +21,7 @@ for (let k = 0; k < n; k++) {
     const G = window.KK.G, R = G.race;
     if (!R) return { state: G.state };
     return {
-      state: G.state, phase: R.phase, time: +R.raceTime.toFixed(1), tiles: G.world.painted + '/' + G.world.total,
+      state: G.state, ms: G.ms && +G.ms.toFixed(2), msMax: G.msMax && +G.msMax.toFixed(1), phase: R.phase, time: +R.raceTime.toFixed(1), tiles: G.world.painted + '/' + G.world.total,
       cars: R.cars.map((c) => `${c.isPlayer ? '*' : ''}${c.name}:p${c.place} v${c.lap} ${c.kmh}km/h d${c.dmg | 0} ${c.surf}${c.air ? ' LUFT' : ''}${c.wreckT > 0 ? ' VRAK' : ''}`),
     };
   });
