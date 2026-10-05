@@ -127,7 +127,7 @@ export class Hud {
     panel(ctx, x, y, PW, 16);
     const f = FRONT[car.frontW], r = REAR[car.rearW];
     drawText(ctx, f.short, x + 5, y + 6, { color: car.ammoF ? 0xffffff : 0x7a7488 });
-    drawText(ctx, String(car.ammoF), x + 60, y + 6, { color: 0xffe080, align: 'r' });
+    drawText(ctx, f.energy ? Math.round(car.ammoF / car.maxF * 100) + '%' : String(car.ammoF), x + 60, y + 6, { color: 0xffe080, align: 'r' });
     ctx.fillStyle = 'rgba(242,194,28,0.4)'; ctx.fillRect(x + 64, y + 3, 1, 10);
     drawText(ctx, r.short, x + 68, y + 6, { color: car.ammoR ? 0xffffff : 0x7a7488 });
     drawText(ctx, String(car.ammoR), x + 104, y + 6, { color: 0xffe080, align: 'r' });

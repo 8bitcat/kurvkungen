@@ -104,6 +104,66 @@ const TREES = {
     br(9, 13, -1, -1, 3); br(21, 10, 1, -1, 3);
     P.outline();
   }),
+  hostlov: (v) => sprite(36, 44, 18, 40, (P) => {
+    trunk(P, 18, 40, 15, 3, 0x5e4232);
+    const n = 6 + (v & 1);
+    const list = [{ x: 0, y: 0, z: 22, r: 8.2 }];
+    for (let k = 0; k < n; k++) {
+      const a = k / n * Math.PI * 2 + v * 1.7, rr = 5 + hash(k, v, 13) * 2;
+      list.push({ x: Math.cos(a) * rr, y: Math.sin(a) * rr, z: 18 + hash(k, v, 14) * 8, r: 4 + hash(k, v, 15) * 2 });
+    }
+    list.push({ x: -1, y: 1, z: 28, r: 5 });
+    clumps(P, 18, 40, list, leafR([0xd86a2a, 0xc0302a, 0xe8b030, 0x9a9a2e][v & 3], 0xfff0a0), 51 + v, 0.45);
+    // några löv på marken
+    for (let k = 0; k < 10; k++) { const x = 8 + hash(k, v, 16) * 20 | 0, y = 38 + hash(k, v, 17) * 4 | 0; if (!P.alpha(x, y)) P.px(x, y, [0xd86a2a, 0xe8b030, 0xc0302a][k % 3]); }
+    P.outline();
+  }),
+  palm: (v) => sprite(44, 54, 22, 50, (P) => {
+    const lean = (v & 1 ? 1 : -1) * (5 + v);
+    const H = 30 + (v & 2) * 2;
+    let tx = 22, ty = 50 - H;
+    for (let y = 0; y < H; y++) {
+      const t = y / H, x = Math.round(22 + lean * t * t), yy = 50 - y, w = y > H - 8 ? 2 : 3;
+      for (let k = 0; k < w; k++) {
+        let c = k === 0 ? 0xb08a5a : k === w - 1 ? 0x5a4430 : 0x8a6a44;
+        if (y % 3 === 0) c = mul(c, 0.78);
+        P.px(x - 1 + k, yy, c);
+      }
+      if (y === H - 1) { tx = x; ty = yy; }
+    }
+    const R = leafR(0x3a9a34, 0xe0ff90);
+    const fronds = 8;
+    for (let f = 0; f < fronds; f++) {
+      const a = (f / fronds) * Math.PI * 2 + v * 0.4;
+      const dx = Math.cos(a), dy = Math.sin(a) * 0.55, L = 12 + hash(f, v, 3) * 5;
+      const col = dy < -0.15 ? R.hi : dx < -0.3 ? R.base : dy > 0.2 ? R.lo : R.base;
+      for (let s = 0; s <= L; s += 0.5) {
+        const x = tx + dx * s, y = ty + dy * s + (s / L) ** 2 * 7 - 1;
+        P.px(x, y, col); P.px(x, y + 1, s > L * 0.7 ? R.dk : R.lo);
+        if (((s * 2) | 0) % 2 === 0 && s > 2) { P.px(x - dy * 2, y + dx * 1.2, col); P.px(x + dy * 2, y + 1 - dx * 1.2 + 1, R.lo); }
+      }
+    }
+    P.rect(tx - 2, ty, 2, 2, 0x6a4a2a); P.rect(tx, ty + 1, 2, 2, 0x5a3e22); P.px(tx - 2, ty, 0x9a7044);
+    P.outline();
+  }),
+  lampa: (v, th) => sprite(18, 42, 7, 39, (P) => {
+    const moon = th.ground === 'moon';
+    for (let y = 0; y < 30; y++) { P.px(6, 38 - y, 0xb8bcc8); P.px(7, 38 - y, 0x7a7e8c); }
+    P.rect(5, 37, 4, 2, 0x4a4c58);
+    for (let x = 0; x < 6; x++) P.px(8 + x, 9 - (x < 2 ? 0 : 1), 0x8a8e9c);
+    P.rect(11, 8, 5, 2, 0x3a3c48);
+    P.rect(11, 10, 5, 1, moon ? 0x9cf0ff : 0xfff2c0);
+    if (moon) P.px(13, 7, 0xff4040);
+    P.outline();
+  }),
+  bal: (v) => {
+    const parts = [{ t: 'cyl', c: [0, 0, 4.2], r: 4.2, hw: 3.2, mat: 'hay', ax: 1 }];
+    const cv = renderParts(parts, v * 0.9, 26, 22, 13, 15, (mat, lp, n, px, py, best) => {
+      if (best && best.face) return ((best.rr * 5) % 1) < 0.35 ? 0xb89a48 : 0xe2c870;
+      return hash(px, py >> 1, 4) > 0.6 ? 0xd4b45a : 0xe8cf7a;
+    });
+    return { cv, ox: 13, oy: 15, w: 26, h: 22 };
+  },
   sten: (v, th) => sprite(24, 16, 12, 13, (P) => {
     const base = th.ground === 'sand' ? 0xa45a3c : th.ground === 'snow' ? 0x767c90 : 0x8a8890;
     const list = [{ x: 0, y: 0, z: 2.4, r: 5 + v * 0.4, zs: 0.62 }, { x: 2.4, y: -1.8, z: 2, r: 3.4, zs: 0.7 }, { x: -2, y: 2.2, z: 1.6, r: 3, zs: 0.7 }];
@@ -142,7 +202,7 @@ export function treeSprite(kind, v, th) {
   if (!cache.has(key)) cache.set(key, TREES[kind](v, th));
   return cache.get(key);
 }
-export const TREE_RADIUS = { lov: 4, bjork: 3, gran: 4, snogran: 4, buske: 0, kaktus: 2.5, torr: 2.5, sten: 5 };
+export const TREE_RADIUS = { lov: 4, bjork: 3, gran: 4, snogran: 4, buske: 0, kaktus: 2.5, torr: 2.5, sten: 5, hostlov: 4, palm: 2.5, lampa: 1.5, bal: 4.5 };
 
 export const CONE = sprite(9, 11, 4, 9, (P) => {
   P.rect(1, 8, 7, 2, 0x2a2228); P.rect(1, 8, 7, 1, 0x3c343a);
@@ -273,6 +333,35 @@ export const MINE = [false, true].map((on) => sprite(9, 6, 4, 3, (P) => {
   for (let y = 0; y < 5; y++) for (let x = 0; x < 9; x++) { const e = ((x - 4) / 4.2) ** 2 + ((y - 2.5) / 2.2) ** 2; if (e <= 1) P.px(x, y, e > 0.6 ? 0x2a2830 : y < 2 ? 0x6a6874 : 0x45434e); }
   P.px(4, 1, on ? 0xff3020 : 0x6a1a14); if (on) P.px(4, 0, 0xffa090, 0.6);
 }));
+export function glueSprite(seed) {
+  return sprite(40, 22, 20, 11, (P) => {
+    for (let y = 0; y < 22; y++) for (let x = 0; x < 40; x++) {
+      const e = ((x - 20) / 18) ** 2 + ((y - 11) / 9) ** 2 + (hash(x >> 2, y >> 1, seed + 5) - 0.5) * 0.4;
+      if (e > 1) continue;
+      let c = e > 0.82 ? 0xb8c43a : 0xd8e45a;
+      if (hash(x, y, seed) > 0.93) c = 0xf4fca0;
+      if (Math.sin(x * 0.7 + y * 1.1 + seed) > 0.9 && e < 0.6) c = 0xfaffd0;
+      P.px(x, y, c, 0.9);
+    }
+  });
+}
+export const STUMP = sprite(14, 10, 7, 7, (P) => {
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 6; x++) P.px(4 + x, 3 + y, x === 0 ? 0x8a6448 : x === 5 ? 0x4a3426 : 0x6a4c36);
+  for (let x = 0; x < 6; x++) P.px(4 + x, 2, x === 0 || x === 5 ? 0xb89a6a : 0xd8bc8a);
+  P.px(6, 2, 0x9a7a52); P.px(7, 2, 0xc8a878);
+  P.px(2, 7, 0x4a3426); P.px(3, 7, 0x5a3e2c); P.px(10, 7, 0x4a3426);
+  P.outline();
+});
+export const BARREL = sprite(10, 13, 5, 11, (P) => {
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 7; x++) {
+    let c = x === 0 ? 0xf05a3a : x >= 5 ? 0x8a1c14 : 0xd2341e;
+    if (y === 2 || y === 7) c = x === 0 ? 0xc8ccd4 : x >= 5 ? 0x5a5e6a : 0x9a9eaa;
+    if (y >= 4 && y <= 5 && x > 0 && x < 6) c = ((x + y) & 1) ? 0x1c1a20 : 0xf2c21c;
+    P.px(1 + x, 1 + y, c);
+  }
+  for (let x = 0; x < 7; x++) P.px(1 + x, 0, x === 0 || x === 6 ? 0x6a1810 : 0xa82418);
+  P.outline();
+});
 export function oilSprite(seed) {
   return sprite(40, 22, 20, 11, (P) => {
     for (let y = 0; y < 22; y++) for (let x = 0; x < 40; x++) {

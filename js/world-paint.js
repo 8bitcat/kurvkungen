@@ -2,7 +2,8 @@
 // höjdkartan. Träff på ovansida = mark/väg/vatten/lövverk, träff på sida = klippvägg, skogskant,
 // brokant. Ljus från vänster uppe, kvantiserat i toner med Bayer-dither, kastade skuggor.
 import { nearest } from './trackgeo.js?v=1';
-import { vnoise } from './noise.js?v=1';
+import { vnoise, fbm } from './noise.js?v=1';
+import { fieldAt } from './fields.js?v=1';
 import { hash, bayer, mix, mul, shade, sm } from './pix.js?v=1';
 import { LX, LY, LZ, TS } from './iso.js?v=1';
 import { MAT, DECK } from './world-gen.js?v=1';
@@ -24,10 +25,59 @@ export function paintTile(Wd, tx, ty) {
     return h < 0 ? 0 : h;
   };
   const snow = th.ground === 'snow', desert = th.ground === 'sand';
-  const L = T.L;
+  const city = th.ground === 'city', ash = th.ground === 'ash', moon = th.ground === 'moon';
+  const L = T.L, seed = Wd.seed, B = Wd.B, bid = Wd.bid;
+  const ROOF = [0x6a6a72, 0x5a5652, 0x7a7068, 0x4a4a52, 0x8a8478, 0x5e6266];
+  const WALL = [0xa0523a, 0xc0bcb2, 0x6a86a6, 0xd8b860, 0xe0dcd4, 0x8a6a5a];
+  const HROOF = [0x3a3440, 0xa83a2a, 0x5a4a3a];
 
   function ground(x, y, px, py, c0) {
     const xi = x | 0, yi = y | 0;
+    if (city && fbm(x / 170, y / 170, seed + 7, 3) < th.forest - 0.02) {
+      // stenläggning: plattor 6×6 med fogar
+      const tx = Math.floor(x / 6), ty = Math.floor(y / 6), lx = x - tx * 6, ly = y - ty * 6;
+      let c = mul(0xa8a49e, 0.94 + hash(tx, ty, seed + 3) * 0.1);
+      if (lx < 0.6 || ly < 0.6) c = mul(c, 0.82);
+      else if (lx < 1.2 || ly < 1.2) c = mix(c, 0xffffff, 0.12);
+      if (hash(xi, yi, 21) > 0.95) c = mul(c, 0.9);
+      if (hash(tx >> 3, ty >> 3, seed + 4) > 0.9 && lx > 2 && lx < 4 && ly > 2 && ly < 4 && ((tx + ty) & 7) === 0) c = 0x3a3840;
+      return c;
+    }
+    if (ash) {
+      let c = c0 ?? th.grass;
+      const a = vnoise(x / 26, y / 26, 40);
+      if (a > 0.62) c = th.grass2; else if (a < 0.32) c = th.grass3;
+      const b = hash(xi, yi, 13);
+      if (b > 0.95) c = mix(c, 0xffffff, 0.12); else if (b < 0.06) c = mul(c, 0.8);
+      const cr = Math.abs(vnoise(x / 22, y / 22, 41) - 0.5);
+      if (cr < 0.011) c = 0xff8a2a; else if (cr < 0.02) c = 0xa83a1a;
+      return c;
+    }
+    if (moon) {
+      let c = c0 ?? th.grass;
+      const a = vnoise(x / 40, y / 40, 40) * 0.6 + vnoise(x / 12, y / 12, 42) * 0.4;
+      if (a > 0.6) c = th.grass2; else if (a < 0.34) c = th.grass3;
+      const b = hash(xi, yi, 13);
+      if (b > 0.96) c = mix(c, 0xffffff, 0.2); else if (b < 0.05) c = mul(c, 0.84);
+      const gx = Math.floor(x / 16), gy = Math.floor(y / 16);
+      if (hash(gx, gy, 43) > 0.62) {
+        const cx = gx * 16 + 4 + hash(gx, gy, 44) * 8, cy = gy * 16 + 4 + hash(gx, gy, 45) * 8, r = 1.8 + hash(gx, gy, 46) * 4.5;
+        const dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy);
+        if (d < r) c = d > r - 1.1 ? (dx - dy < 0 ? mul(c, 0.78) : mix(c, 0xffffff, 0.22)) : mul(c, 0.88);
+      }
+      return c;
+    }
+    if (th.fields) {
+      const f = fieldAt(x, y, seed);
+      if (f && f.edge) return mix(th.grass3, 0x3a5a24, 0.4 + hash(xi >> 1, yi >> 1, 47) * 0.2);
+      if (f) {
+        const r = f.row, b = hash(xi, yi, 48);
+        if (f.type === 0) { let c = (r % 4) < 1.6 ? 0x5a3a22 : 0x7a5232; if (b > 0.9) c = 0x9a6a42; return c; }
+        if (f.type === 1) { let c = (r % 3) < 1 ? 0xc8a848 : 0xe0c060; if (b > 0.92) c = 0xf6e090; return c; }
+        if (f.type === 2) { let c = (r % 3.5) < 1.3 ? 0x3a6a24 : 0x5a9a32; if (b > 0.93) c = 0x7aba42; return c; }
+        let c = 0xf2e040; if (b > 0.75) c = 0x9ab830; else if (b < 0.1) c = 0xf8f080; return c;
+      }
+    }
     const a = vnoise(x / 30, y / 30, 11) * 0.65 + vnoise(x / 9, y / 9, 12) * 0.35 + (bayer(px, py) - 0.5) * 0.06;
     let c = a > 0.62 ? th.grass2 : a < 0.3 ? mix(c0 ?? th.grass, th.grass3, 0.55) : (c0 ?? th.grass);
     const b = hash(xi, yi, 13);
@@ -73,6 +123,11 @@ export function paintTile(Wd, tx, ty) {
         if (inside || Math.abs(K) > 0.0075) c = (Math.floor(s / 6) & 1) ? th.curbR : th.curbW;
         if (ad > hw - 0.9) c = mul(c, 0.78);
       }
+      if (T.flags[i] & 8) {
+        const n = T.n, lip = !(T.flags[(i + 3) % n] & 8);
+        c = mix(c, 0xd8d4cc, 0.35);
+        if (lip) c = (Math.floor((s + ad * 0.8) / 2.5) & 1) ? 0x1c1a20 : 0xf2c21c;
+      }
       if (s < 7) c = ((Math.floor(s / 3.5) + Math.floor((d + 200) / 3.5)) & 1) ? 0x1c1a20 : 0xf4f2ee;
       else if (s > L - 260) { // startrutor
         const k = Math.round((L - 26 - s) / 28);
@@ -90,6 +145,12 @@ export function paintTile(Wd, tx, ty) {
     if (onDeck) {
       if (ad > hw + 3.6) c = mul(c, 0.86);
       else if (gr > 0.8) c = mul(c, 1.05);
+      return c;
+    }
+    if (th.kerb) {
+      if (ad < hw + 1.2) return 0xd8d4cc;
+      c = mul(c, 0.95 + hash(Math.floor(s / 3), Math.floor(ad / 3), 9) * 0.08);
+      if (((s % 3) < 0.4) || ((ad % 3) < 0.4)) c = mul(c, 0.86);
       return c;
     }
     if (gr > 0.82) c = mix(c, 0xffffff, 0.16); else if (gr < 0.25) c = mul(c, 0.83);
@@ -143,8 +204,18 @@ export function paintTile(Wd, tx, ty) {
               if (cr < 0.018) base = mul(base, 0.82); else if (cr < 0.04) base = mix(base, 0xffffff, 0.3);
               if (Math.sin(x * 0.09 + y * 0.16 + vnoise(x / 50, y / 50, 62) * 4) > 0.93) base = th.water2;
               if (dep < 0.8) base = th.foam;
+            } else if (th.lava) {
+              base = mix(th.water, th.waterDeep, sm(2, 8, dep));
+              const v = vnoise(x / 12, y / 12, 31);
+              if (v > 0.63) base = v > 0.66 ? 0x3a1a16 : 0x8a2a14;
+              const vein = Math.abs(vnoise(x / 30, y / 30, 32) - 0.5);
+              if (vein < 0.025) base = th.water2;
+              if (hash(xi, yi, 33) > 0.995) base = 0xfff6c0;
+              if (dep < 1) base = bayer(px, py) < sm(1, 0.3, dep) ? th.foam : th.water2;
+              k = 1.12;
             } else {
               base = mix(th.water, th.waterDeep, sm(1.6, 7.5, dep));
+              if (th.shallow) base = mix(th.shallow, base, sm(0.8, 3.2, dep));
               const w = Math.sin(x * 0.21 + y * 0.09 + vnoise(x / 40, y / 40, 21) * 7);
               if (w > 0.9 && hash(xi, yi, 22) > 0.3) base = th.water2;
               else if (w < -0.95 && hash(xi, yi, 24) > 0.5) base = mul(base, 0.9);
@@ -160,14 +231,29 @@ export function paintTile(Wd, tx, ty) {
             k = ((-gx * LX - gy * LY + LZ) / nl) / LZ;
             if (m === MAT.LEAF) {
               const s2 = hash(x >> 1, y >> 1, 31);
-              base = th.leaf;
-              if (k > 1.04 && s2 > 0.5) base = th.leaf2;
-              else if (k < 0.86 && s2 > 0.55) base = th.leafDk;
-              if (hash(x | 0, y | 0, 32) > 0.86) base = mix(base, th.leaf2, 0.5);
+              const LM = th.leafMix ? th.leafMix[Math.min(3, Math.floor(vnoise(x / 18, y / 18, 91) * 4.4))] : null;
+              const l0 = LM ? LM[0] : th.leaf, l1 = LM ? LM[1] : th.leaf2, l2 = LM ? LM[2] : th.leafDk;
+              base = l0;
+              if (k > 1.04 && s2 > 0.5) base = l1;
+              else if (k < 0.86 && s2 > 0.55) base = l2;
+              if (hash(x | 0, y | 0, 32) > 0.86) base = mix(base, l1, 0.5);
               if (snow && k > 0.92 && hash(x | 0, y | 0, 33) > 0.45) base = mix(0xf2f6ff, 0xc8d4ea, 1.06 - k);
               k = 1 + (k - 1) * 1.5;
             } else if (m === MAT.PILLAR) {
               base = th.deck;
+            } else if (m === MAT.BUILD) {
+              const b = B[bid[hci] - 1];
+              if (b.kind === 'city') {
+                if (zt > b.top + 1.8) { base = 0xa8aab4; if (((px + py) & 1) && hash(px, py, 5) > 0.5) base = 0x8a8c96; }
+                else if (zt > b.top + 0.5) base = 0xc8c4bc;
+                else { base = ROOF[b.style]; if (hash(x | 0, y | 0, 71) > 0.88) base = mul(base, 0.88); if (((x - b.x0) % 12) < 0.6) base = mul(base, 0.9); }
+              } else {
+                const v = b.axis === 0 ? Math.abs(y - b.cy) : Math.abs(x - b.cx);
+                base = b.kind === 'barn' ? 0x7a2a24 : HROOF[b.style];
+                if (v < 0.9) base = mix(base, 0xffffff, 0.2);
+                else if ((v % 2) < 0.5) base = mul(base, 0.78);
+                if (hash(x | 0, y | 0, 72) > 0.9) base = mul(base, 0.9);
+              }
             } else {
               const gi = near[(y >> 1) * GW + (x >> 1)];
               const ex = T.X[gi] - x, ey = T.Y[gi] - y;
@@ -216,7 +302,7 @@ export function paintTile(Wd, tx, ty) {
               if (Hm[cj] > sz) sh = 1;
               else if (mat[cj] & DECK) { const gz = T.Z[near[(sy2 >> 1) * GW + (sx2 >> 1)]]; if (sz < gz && sz > gz - 4) sh = 1; }
             }
-            if (sh) k = 0.64;
+            if (sh && !th.lava) k = 0.64;
           }
           if (res === 3) {
             // brodäck: skugga från räcken mm. ignoreras
@@ -244,13 +330,45 @@ export function paintTile(Wd, tx, ty) {
             const depth = hh - z, above = z - prevTop;
             let base;
             if (m === MAT.LEAF) {
-              base = hash(cx >> 1, Math.floor(z), 51) > 0.62 ? (k > 0.8 ? th.leaf2 : th.leafDk) : th.leaf;
-              if (hash(cx, Math.floor(z * 2), 52) > 0.86) base = th.leafDk;
+              const LM = th.leafMix ? th.leafMix[Math.min(3, Math.floor(vnoise(x / 18, y / 18, 91) * 4.4))] : null;
+              const l0 = LM ? LM[0] : th.leaf, l1 = LM ? LM[1] : th.leaf2, l2 = LM ? LM[2] : th.leafDk;
+              base = hash(cx >> 1, Math.floor(z), 51) > 0.62 ? (k > 0.8 ? l1 : l2) : l0;
+              if (hash(cx, Math.floor(z * 2), 52) > 0.86) base = l2;
               k *= 1 - Math.min(0.4, depth * 0.035);
               if (above < 4.5) { base = hash(cx >> 1, 0, 53) > 0.6 ? th.trunk : th.leafDk; k *= 0.7; }
               if (snow && depth < 2 && hash(cx, 1, 54) > 0.3) base = 0xe8eef8;
             } else if (m === MAT.PILLAR) {
               base = th.deck; if ((cx & 3) === 0) base = mul(base, 0.9);
+            } else if (m === MAT.BUILD) {
+              const b = B[bid[hci] - 1];
+              const zr = z - b.base;
+              const along = Math.abs(nx) > Math.abs(ny) ? y - b.cy : x - b.cx;
+              if (b.kind === 'city') {
+                base = WALL[b.style];
+                const fl = Math.floor(zr / 7), zz = zr - fl * 7, col = ((cx % 6) + 6) % 6;
+                if (b.style === 0 && (Math.floor(z * 2) & 1)) base = mul(base, 0.92);
+                if (z > b.top - 1.2) base = mix(base, 0xffffff, 0.25);
+                else if (zr < 6) { base = mul(base, 0.8); if (zz > 1.2 && zz < 5 && col !== 0) base = ((cx >> 2) + 1) % 5 === 0 ? 0x8ab0d8 : 0x2a3a4a; }
+                else if (b.style === 2) { base = zz < 0.8 ? 0xb8c4d0 : ((cx + fl * 3) % 9 < 2 ? 0x9ac0e0 : 0x4a6a8e); }
+                else if (zz > 2.4 && zz < 5.6 && col >= 1 && col <= 4) {
+                  base = hash(Math.floor(cx / 6), fl, b.style + 70) > 0.82 ? 0x8ab0d8 : 0x2e3e58;
+                  if (zz > 5) base = mul(base, 0.7);
+                }
+                k = 0.8 + (nx * LX + ny * LY) * 0.45;
+              } else {
+                const barn = b.kind === 'barn';
+                base = barn ? 0xa8302a : 0xeae6dc;
+                if (barn && ((cx % 3) + 3) % 3 === 0) base = mul(base, 0.84);
+                if (z > b.wall - 1.1 && z < b.wall + 0.2) base = 0xf2eee6;
+                if (barn && Math.abs(along) < 6.5 && zr < 10) {
+                  const a = Math.abs(along);
+                  if (a > 5.6 || zr > 9.2) base = 0xf2eee6;
+                  else if (Math.abs(a * 0.8 - Math.abs(zr - 4.6)) < 0.55) base = 0xf2eee6;
+                  else base = 0x8a2622;
+                }
+                if (!barn && zr > 3 && zr < 8 && ((along + 40) % 8) < 3.5) base = (zr < 3.6 || zr > 7.4) ? 0x3a5a8a : 0x2e3e58;
+                if (z > b.wall + 3 && z < b.wall + 5 && Math.abs(along) < 1.3) base = 0x2a2428;
+              }
             } else {
               const off = hash(Math.floor(cx / 7), 0, 60) * 5;
               const br = Math.floor((z + off) / 5);

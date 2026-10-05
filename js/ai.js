@@ -55,6 +55,15 @@ export function makeAI(skill) {
   };
 }
 
+// AI:ns vapenbruk: räckvidd, kon (cos), hur länge avtryckaren hålls och väntetid efteråt
+const WEAP = {
+  kulspruta: { range: 230, cone: 0.975, hold: 0.4, cool: [0.2, 0.5] },
+  raketer: { range: 380, cone: 0.82, hold: 0, cool: [2.5, 4] },
+  kanon: { range: 420, cone: 0.985, hold: 0, cool: [2, 3] },
+  laser: { range: 260, cone: 0.985, hold: 0.8, cool: [0.6, 1.2] },
+  eld: { range: 80, cone: 0.88, hold: 1.0, cool: [0.4, 1] },
+  blixt: { range: 320, cone: 0.6, hold: 0, cool: [3, 4] },
+};
 const sdiff = (T, a, b) => { let d = a - b; if (d > T.L / 2) d -= T.L; else if (d < -T.L / 2) d += T.L; return d; };
 
 export function aiDrive(car, R, dt) {
@@ -82,6 +91,21 @@ export function aiDrive(car, R, dt) {
       const side = car.d - o.d >= 0 ? 1 : -1;
       off = car.d + side * (14 - Math.abs(dd)) * 1.4;
       if (ds < 26 && o.speed < sp - 25) brakeFor = Math.min(brakeFor, o.speed + 10);
+    }
+  }
+  // stora djur på vägen: kör runt (eller bromsa)
+  if (R.animals) for (const a of R.animals.list) {
+    if (a.S.size === 's' || a.state === 'dead' || a.state === 'flat' || a.state === 'gone' || a.state === 'fly') continue;
+    const dx = a.x - car.x, dy = a.y - car.y, dist = Math.hypot(dx, dy);
+    if (dist > 110) continue;
+    const fx = Math.cos(car.ang), fy = Math.sin(car.ang), along = dx * fx + dy * fy;
+    if (along < 0) continue;
+    const lat = -dx * fy + dy * fx; // + = till höger om bilen
+    if (Math.abs(lat) < a.S.r + 9) {
+      const nx = T.NX[car.si], ny = T.NY[car.si];
+      const ad = car.d + (dx * nx + dy * ny);
+      off = ad + (car.d >= ad ? 1 : -1) * (a.S.r + 12);
+      if (a.S.size === 'l' && ai.skill > 0.3) brakeFor = Math.min(brakeFor, 90 + along * 0.8);
     }
   }
   const hw = T.HW[j] - 7;
@@ -113,15 +137,18 @@ export function aiDrive(car, R, dt) {
   // vapen
   ai.fireT -= dt; ai.rearT -= dt;
   const fx = Math.cos(car.ang), fy = Math.sin(car.ang);
+  const W = WEAP[car.frontW];
+  if (ai.holdT > 0) { ai.holdT -= dt; inp.fire = car.ammoF > 0; }
   for (const o of R.cars) {
     if (o === car || o.wreckT > 0 || o.inv > 0) continue;
     const dx = o.x - car.x, dy = o.y - car.y, dist = Math.hypot(dx, dy);
     const along = (dx * fx + dy * fy) / (dist || 1);
-    if (car.ammoF > 0 && ai.fireT < 0 && dist < (car.frontW === 'raketer' ? 380 : 230) && along > (car.frontW === 'raketer' ? 0.82 : 0.975)) {
-      if (Math.random() < ai.aggr * (o.isPlayer ? 1.1 : 0.7)) { inp.fire = true; if (car.frontW === 'raketer') ai.fireT = 2.5 + Math.random() * 4; }
+    if (car.ammoF > 0 && ai.fireT < 0 && dist < W.range && along > W.cone) {
+      if (Math.random() < ai.aggr * (o.isPlayer ? 1.1 : 0.7)) { inp.fire = true; ai.holdT = W.hold; ai.fireT = W.cool[0] + Math.random() * W.cool[1]; }
       else ai.fireT = 0.6;
     }
-    if (car.ammoR > 0 && ai.rearT < 0 && dist < 70 && along < -0.85) {
+    const rearRange = car.rearW === 'bakraket' ? 300 : 80;
+    if (car.ammoR > 0 && ai.rearT < 0 && dist < rearRange && along < (car.rearW === 'bakraket' ? -0.6 : -0.85)) {
       if (Math.random() < ai.aggr * 0.5) inp.rear = true;
       ai.rearT = 2 + Math.random() * 3;
     }

@@ -3,7 +3,7 @@ const keys = new Set();
 const actions = [];
 const MAP_ACT = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
-  Enter: 'ok', Space: 'ok', NumpadEnter: 'ok', Escape: 'back', Backspace: 'back', KeyP: 'pause', KeyM: 'music', KeyR: 'reset',
+  Enter: 'ok', Space: 'ok', NumpadEnter: 'ok', Escape: 'back', Backspace: 'back', KeyP: 'pause', KeyM: 'music', KeyR: 'reset', KeyT: 'horn', KeyH: 'horn',
 };
 export const input = { touch: false, autoGas: false, pointer: null, lastDevice: 'kb' };
 

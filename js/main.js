@@ -3,14 +3,14 @@ import { World } from './world.js?v=1';
 import { Race } from './race.js?v=1';
 import { Hud, ordinal, fmtTime } from './hud.js?v=1';
 import { drawRace, prewarm, carSprite } from './render.js?v=1';
-import { renderCar, palette, CAR_COLORS } from './carsprites.js?v=1';
+import { renderCar, palette, CAR_COLORS, lookKey } from './carsprites.js?v=1';
 import { drawText, GRAD, panel, tw } from './text.js?v=1';
 import { Menu, CUPS, PRIZES, POINTS } from './ui.js?v=1';
 import { input, pollActions, driveInput, touchButtons, setPointerMap, heldTouches } from './input.js?v=1';
 import { initAudio, sfx, startMusic, stopMusic, makeEngines, stopEngines, engineSet, setMusic, setSfx, audio } from './audio.js?v=1';
 import { save, persist, resetSave } from './save.js?v=1';
-import { CARS, CAR_ORDER, UPGRADES, UPG_ORDER, FRONT, REAR, DRIVERS } from './cars.js?v=1';
-import { TRACKS, TRACK_ORDER, trackName, THEMES } from './tracks.js?v=1';
+import { CARS, CAR_ORDER, UPGRADES, UPG_ORDER, FRONT, REAR, DRIVERS, ACCESSORIES, ACC_ORDER, PATTERNS, PATTERN_ORDER, FRONT_ORDER, REAR_ORDER, carStats } from './cars.js?v=1';
+import { TRACKS, TRACK_ORDER, BASE_TRACKS, trackName, THEMES } from './tracks.js?v=1';
 import { VERSION } from './version.js?v=1';
 import { css } from './pix.js?v=1';
 
@@ -95,6 +95,19 @@ function onEvent(type, a, b, c) {
     case 'cone': sfx('cone', v(a)); break;
     case 'hit': if (a === P) sfx('hit'); break;
     case 'rescue': hud.say('TILLBAKA PÅ BANAN', 1.4, GRAD.white, false); break;
+    case 'cannon': sfx('cannon', v(a)); if (a === P) G.cam.shake = 0.12; break;
+    case 'laser': sfx('laser', v(a) * 0.8); break;
+    case 'flame': sfx('flame', v(a) * 0.8); break;
+    case 'zap': sfx('zap', v(a)); if (b === P) hud.say('MOTORN SLÅR AV!', 1.4, GRAD.blue, false); break;
+    case 'spike': sfx('spike', v(a)); if (a === P) hud.say('PUNKA!', 1.4, GRAD.red, false); break;
+    case 'glue': sfx('glue', v(a)); if (a === P) hud.say('FAST I LIMMET!', 1.2, GRAD.green, false); break;
+    case 'splat': sfx('splat', v(a)); if (b === P) { G.cam.shake = 0.06; hud.say(['MOS!', 'PANNKAKA!', 'OJ!', 'PLATT!'][(Math.random() * 4) | 0], 0.9, GRAD.red, false); } break;
+    case 'animal': sfx('animalhit', v(a)); if (b === P) hud.say('VÄÄÄ!', 0.9, GRAD.red, false); break;
+    case 'moose': sfx('moose', v(a)); if (b === P) { G.cam.shake = 0.5; hud.say(a.type === 'alg' ? 'ÄLGKROCK!' : a.type === 'ko' ? 'KOKROCK!' : 'KROCK!', 1.6, GRAD.red); } break;
+    case 'thud': sfx('thud', v(a) * 0.7); break;
+    case 'fell': sfx('fell', v(a)); break;
+    case 'lava': sfx('boom', v(a)); if (a === P) hud.say('I LAVAN!', 1.6, GRAD.fire); break;
+    case 'land': if (a === P) sfx('land', Math.min(1, b / 200)); break;
     case 'done': if (!att) setTimeout(() => { if (G.race === R) showResults(); }, 1800); break;
   }
 }
@@ -120,9 +133,9 @@ async function boot() {
 function startAttract() {
   G.world.resetDynamic();
   const cars = [];
-  const models = ['komet', 'muskel', 'pirat', 'raket', 'buffel', 'komet'];
-  for (let k = 0; k < 6; k++) cars.push({ name: DRIVERS[k].name, carId: models[k], color: [0xd8282c, ...DRIVERS.map((d) => d.color)][k], skill: 0.5 + k * 0.08 });
-  G.race = new Race(G.world, { mode: 'attract', cars, countdown: 0.01, events: onEvent });
+  const models = [...CAR_ORDER].sort(() => Math.random() - 0.5).slice(0, 7);
+  for (let k = 0; k < 7; k++) cars.push({ name: DRIVERS[k].name, carId: models[k], color: k === 0 ? 0xd8282c : DRIVERS[k].color, skill: 0.5 + k * 0.07, pattern: PATTERN_ORDER[(Math.random() * PATTERN_ORDER.length) | 0], frontW: FRONT_ORDER[k % FRONT_ORDER.length], rearW: REAR_ORDER[k % REAR_ORDER.length] });
+  G.race = new Race(G.world, { mode: 'attract', cars, countdown: 0.01, events: onEvent, night: G.world.def.night });
   G.hud = new Hud(G.race);
   G.follow = G.race.cars[0]; G.followT = 0;
   const c = G.follow; G.cam.x = c.x; G.cam.y = c.y; G.cam.z = c.z;
@@ -131,23 +144,34 @@ function startAttract() {
 function makeOpponents(cup, n) {
   const ds = [...DRIVERS].sort(() => Math.random() - 0.5).filter((d) => d.color !== (save.garage[save.car]?.color));
   const out = [];
+  const fronts = FRONT_ORDER.slice(0, 2 + cup.upg * 2), rears = REAR_ORDER.slice(0, 3 + cup.upg * 2);
   for (let k = 0; k < n; k++) {
-    const d = ds[k];
+    const d = ds[k % ds.length];
     const skill = cup.skill[0] + (cup.skill[1] - cup.skill[0]) * (k / Math.max(1, n - 1));
     const up = cup.upg;
     out.push({
       name: d.name, color: d.color, carId: cup.models[k % cup.models.length], skill,
-      upg: { motor: Math.min(4, up + (k > 2 ? 1 : 0)), dack: up, pansar: up, nitro: Math.min(4, up) },
-      frontW: k % 3 === 2 && up > 0 ? 'raketer' : 'kulspruta', frontLvl: Math.min(3, up), rearW: ['minor', 'olja', 'rok'][k % 3], rearLvl: Math.min(3, up),
+      upg: { motor: Math.min(4, up + (k > 2 ? 1 : 0)), dack: up, pansar: up, nitro: Math.min(4, up), ramm: Math.min(4, up + (k & 1)), ljus: 2 },
+      acc: { spoiler: Math.random() < 0.3, neon: Math.random() < 0.4 },
+      pattern: PATTERN_ORDER[(Math.random() * PATTERN_ORDER.length) | 0],
+      frontW: fronts[(Math.random() * fronts.length) | 0], frontLvl: Math.min(3, up), rearW: rears[(Math.random() * rears.length) | 0], rearLvl: Math.min(3, up),
     });
   }
   return out;
 }
 
+export function gEntry(id) {
+  const g = save.garage[id];
+  if (g) {
+    g.upg = { motor: 0, dack: 0, pansar: 0, nitro: 0, ramm: 0, ljus: 0, ...(g.upg || {}) };
+    g.acc = g.acc || {}; g.patterns = g.patterns || ['rander', 'enfarg']; g.pattern = g.pattern || 'rander';
+  }
+  return g;
+}
 function playerCarCfg() {
-  const g = save.garage[save.car];
+  const g = gEntry(save.car);
   return {
-    name: 'Du', isPlayer: true, carId: save.car, color: g.color, upg: g.upg,
+    name: 'Du', isPlayer: true, carId: save.car, color: g.color, upg: g.upg, acc: g.acc, pattern: g.pattern,
     frontW: save.weapons.front, frontLvl: save.weapons.owned[save.weapons.front] || 0,
     rearW: save.weapons.rear, rearLvl: save.weapons.owned[save.weapons.rear] || 0,
   };
@@ -171,7 +195,7 @@ async function startRace(cfg) {
     for (const name of order) cars.push(name === 'Du' ? pc : opp.find((o) => o.name === name));
   }
   G.stats = {};
-  const R = new Race(w, { mode: cfg.mode, laps: cfg.laps, cars, events: onEvent, autopilot: cfg.autopilot });
+  const R = new Race(w, { mode: cfg.mode, laps: cfg.laps, cars, events: onEvent, autopilot: cfg.autopilot, night: TRACKS[cfg.track].night });
   G.race = R; G.hud = new Hud(R);
   const pl = R.player;
   G.cam.x = pl.x; G.cam.y = pl.y; G.cam.z = pl.z;
@@ -190,7 +214,7 @@ async function startRace(cfg) {
   });
   G.state = 'race';
   layoutTouch();
-  startMusic('race');
+  startMusic(TRACKS[cfg.track].night || Math.random() < 0.5 ? 'nattpatrull' : 'race');
   makeEngines(2);
 }
 const isoXc = (c) => c.x - c.y, isoYc = (c) => (c.x + c.y) / 2 - c.z;
@@ -203,7 +227,7 @@ function go(state) {
 }
 function mainMenu() {
   return new Menu('HUVUDMENY', [
-    { label: 'MÄSTERSKAP', ok: () => { sfx('ok'); G.menu = cupMenu(); G.state = 'sub'; }, info: () => 'TRE CUPER. VINN PENGAR, KÖP BILAR OCH VAPEN.' },
+    { label: 'MÄSTERSKAP', ok: () => { sfx('ok'); G.menu = cupMenu(); G.state = 'sub'; }, info: () => 'FEM CUPER. VINN PENGAR, KÖP FORDON OCH VAPEN.' },
     { label: 'SNABBT LOPP', ok: () => { sfx('ok'); G.menu = quickMenu(); G.state = 'sub'; }, info: () => 'VÄLJ BANA OCH MOTSTÅNDARE.' },
     { label: 'TIDSJAKT', ok: () => { sfx('ok'); G.menu = timeMenu(); G.state = 'sub'; }, info: () => 'ENSAM PÅ BANAN. SLÅ DITT BÄSTA VARV.' },
     { label: 'GARAGET', ok: () => { sfx('ok'); openGarage(() => go('menu')); }, info: () => `${save.money} KR I KASSAN` },
@@ -223,7 +247,7 @@ function cupMenu() {
   return new Menu('MÄSTERSKAP', items, { w: 220, back: backToMain });
 }
 function startChamp(cup) {
-  const opp = makeOpponents(cup, 5);
+  const opp = makeOpponents(cup, cup.cars || 5);
   save.champ = { cup: cup.id, race: 0, opp, pts: Object.fromEntries([...opp.map((o) => [o.name, 0]), ['Du', 0]]), grid: [...opp.map((o) => o.name), 'Du'] };
   persist();
   preRace();
@@ -239,22 +263,29 @@ function preRace() {
   ], { w: 250, back: () => { G.menu = cupMenu(); } });
   G.state = 'sub';
 }
-let qTrack = 0, qLaps = 3, qLevel = 1;
-const LEVELS = ['LÄTT', 'MEDEL', 'SVÅR'];
+let qTrack = 0, qLaps = 3, qLevel = 1, qRev = false, qNight = false, qCars = 6;
+const LEVELS = ['LÄTT', 'MEDEL', 'SVÅR', 'GALET'];
+const qId = () => BASE_TRACKS[qTrack] + (qRev ? '_r' : '') + (qNight ? '_n' : '');
+const trackItems = () => [
+  { label: 'BANA', value: () => TRACKS[BASE_TRACKS[qTrack]].name.toUpperCase(), left: () => { qTrack = (qTrack + BASE_TRACKS.length - 1) % BASE_TRACKS.length; }, right: () => { qTrack = (qTrack + 1) % BASE_TRACKS.length; }, info: () => THEMES[TRACKS[BASE_TRACKS[qTrack]].theme].name.toUpperCase() },
+  { label: 'RIKTNING', value: () => (qRev ? 'BAKLÄNGES' : 'FRAMÅT'), left: () => { qRev = !qRev; }, right: () => { qRev = !qRev; }, ok: () => { qRev = !qRev; } },
+  { label: 'TID', value: () => (qNight ? 'NATT' : 'DAG'), left: () => { qNight = !qNight; }, right: () => { qNight = !qNight; }, ok: () => { qNight = !qNight; }, info: () => (qNight ? 'MÖRKT! STRÅLKASTARNA LYSER UPP VÄGEN.' : '') },
+];
 function quickMenu() {
   return new Menu('SNABBT LOPP', [
-    { label: 'BANA', value: () => trackName(TRACK_ORDER[qTrack]), left: () => { qTrack = (qTrack + TRACK_ORDER.length - 1) % TRACK_ORDER.length; }, right: () => { qTrack = (qTrack + 1) % TRACK_ORDER.length; } },
+    ...trackItems(),
     { label: 'VARV', value: () => qLaps, left: () => { qLaps = Math.max(1, qLaps - 1); }, right: () => { qLaps = Math.min(9, qLaps + 1); } },
-    { label: 'MOTSTÅNDARE', value: () => LEVELS[qLevel], left: () => { qLevel = (qLevel + 2) % 3; }, right: () => { qLevel = (qLevel + 1) % 3; } },
-    { label: 'KÖR!', ok: () => { sfx('ok'); startRace({ track: TRACK_ORDER[qTrack], laps: qLaps, mode: 'race', opponents: makeOpponents(CUPS[qLevel], 5), prizeMul: 0.4 }); }, info: () => 'SNABBA LOPP GER HALVA PRISPENGAR.' },
+    { label: 'MOTSTÅNDARE', value: () => LEVELS[qLevel], left: () => { qLevel = (qLevel + 3) % 4; }, right: () => { qLevel = (qLevel + 1) % 4; } },
+    { label: 'ANTAL BILAR', value: () => qCars + 1, left: () => { qCars = Math.max(1, qCars - 1); }, right: () => { qCars = Math.min(9, qCars + 1); } },
+    { label: 'KÖR!', ok: () => { sfx('ok'); startRace({ track: qId(), laps: qLaps, mode: 'race', opponents: makeOpponents(CUPS[Math.min(CUPS.length - 1, qLevel)], qCars), prizeMul: 0.4 }); }, info: () => 'SNABBA LOPP GER LÄGRE PRISPENGAR.' },
     { label: 'TILLBAKA', ok: backToMain },
-  ], { w: 280, back: backToMain });
+  ], { w: 280, back: backToMain, rowH: 14 });
 }
 function timeMenu() {
   return new Menu('TIDSJAKT', [
-    { label: 'BANA', value: () => trackName(TRACK_ORDER[qTrack]), left: () => { qTrack = (qTrack + TRACK_ORDER.length - 1) % TRACK_ORDER.length; }, right: () => { qTrack = (qTrack + 1) % TRACK_ORDER.length; } },
-    { label: 'REKORD', value: () => fmtTime(save.records[TRACK_ORDER[qTrack]]) },
-    { label: 'KÖR!', ok: () => { sfx('ok'); startRace({ track: TRACK_ORDER[qTrack], laps: 5, mode: 'time', opponents: [], prizeMul: 0 }); } },
+    ...trackItems(),
+    { label: 'REKORD', value: () => fmtTime(save.records[qId()]) },
+    { label: 'KÖR!', ok: () => { sfx('ok'); startRace({ track: qId(), laps: 5, mode: 'time', opponents: [], prizeMul: 0 }); } },
     { label: 'TILLBAKA', ok: backToMain },
   ], { w: 280, back: backToMain });
 }
@@ -274,76 +305,92 @@ function toggleMusic() { setMusic(!audio.music); save.settings.music = audio.mus
 let garage = null;
 function openGarage(back) {
   let view = save.car;
-  const g = () => save.garage[view];
+  const g = () => gEntry(view);
   const owned = () => !!save.garage[view];
-  const cycleCar = (d) => { const i = CAR_ORDER.indexOf(view); view = CAR_ORDER[(i + d + CAR_ORDER.length) % CAR_ORDER.length]; if (owned()) { save.car = view; persist(); } };
-  const colorList = [0xd8282c, ...CAR_COLORS.slice(1)];
+  let pat = owned() ? g().pattern : 'rander';
+  const cycleCar = (d) => { const i = CAR_ORDER.indexOf(view); view = CAR_ORDER[(i + d + CAR_ORDER.length) % CAR_ORDER.length]; if (owned()) { save.car = view; pat = g().pattern; persist(); } else pat = 'rander'; };
+  const colorList = CAR_COLORS;
+  const pay = (p) => { if (save.money < p) { sfx('deny'); return false; } save.money -= p; sfx('buy'); persist(); return true; };
   const upItem = (k) => ({
     label: UPGRADES[k].name.toUpperCase(),
     value: () => { if (!owned()) return '-'; const l = g().upg[k]; return l < 4 ? UPGRADES[k].prices[l] + ' KR' : 'MAX'; },
     pips: () => (owned() ? [g().upg[k], 4] : null),
     dis: () => !owned() || g().upg[k] >= 4,
-    ok: () => { const l = g().upg[k], p = UPGRADES[k].prices[l]; if (save.money < p) { sfx('deny'); return; } save.money -= p; g().upg[k]++; persist(); sfx('buy'); },
+    ok: () => { const l = g().upg[k]; if (pay(UPGRADES[k].prices[l])) { g().upg[k]++; persist(); } },
     info: () => UPGRADES[k].desc.toUpperCase(),
   });
-  const weapItem = (slot, TAB) => {
-    const keys = Object.keys(TAB);
-    return {
-      label: slot === 'front' ? 'FRAMVAPEN' : 'BAKVAPEN',
-      value: () => { const w = save.weapons[slot], lvl = save.weapons.owned[w] ?? -1; return TAB[w].name.toUpperCase() + (lvl >= 0 ? '' : '  ' + TAB[w].price + ' KR'); },
-      pips: () => { const lvl = save.weapons.owned[save.weapons[slot]]; return lvl === undefined ? null : [lvl, 3]; },
-      left: () => { const i = keys.indexOf(save.weapons[slot]); save.weapons[slot] = keys[(i + keys.length - 1) % keys.length]; },
-      right: () => { const i = keys.indexOf(save.weapons[slot]); save.weapons[slot] = keys[(i + 1) % keys.length]; },
-      ok: () => {
-        const w = save.weapons[slot], lvl = save.weapons.owned[w];
-        if (lvl === undefined) { if (save.money < TAB[w].price) { sfx('deny'); return; } save.money -= TAB[w].price; save.weapons.owned[w] = 0; sfx('buy'); }
-        else if (lvl < 3) { const p = TAB[w].prices[lvl]; if (save.money < p) { sfx('deny'); return; } save.money -= p; save.weapons.owned[w]++; sfx('buy'); }
-        else sfx('deny');
-        persist();
-      },
-      info: () => { const w = save.weapons[slot], lvl = save.weapons.owned[w]; return lvl === undefined ? `KÖP FÖR ${TAB[w].price} KR (ENTER)` : lvl < 3 ? `UPPGRADERA: ${TAB[w].prices[lvl]} KR (ENTER)` : 'FULLT UPPGRADERAD'; },
-    };
-  };
+  const accItem = (k) => ({
+    label: ACCESSORIES[k].name.toUpperCase(),
+    value: () => (!owned() ? '-' : g().acc[k] ? 'MONTERAD' : ACCESSORIES[k].price + ' KR'),
+    vcol: () => (owned() && g().acc[k] ? 0x7ae06a : 0xffe080),
+    dis: () => !owned() || !!g().acc[k],
+    ok: () => { if (pay(ACCESSORIES[k].price)) { g().acc[k] = true; persist(); } },
+    info: () => ACCESSORIES[k].desc.toUpperCase(),
+  });
+  const weapItem = (slot, TAB, ORDER) => ({
+    label: slot === 'front' ? 'FRAMVAPEN' : 'BAKVAPEN',
+    value: () => { const w = save.weapons[slot], lvl = save.weapons.owned[w] ?? -1; return TAB[w].name.toUpperCase() + (lvl >= 0 ? '' : '  ' + TAB[w].price + ' KR'); },
+    pips: () => { const lvl = save.weapons.owned[save.weapons[slot]]; return lvl === undefined ? null : [lvl, 3]; },
+    left: () => { const i = ORDER.indexOf(save.weapons[slot]); save.weapons[slot] = ORDER[(i + ORDER.length - 1) % ORDER.length]; },
+    right: () => { const i = ORDER.indexOf(save.weapons[slot]); save.weapons[slot] = ORDER[(i + 1) % ORDER.length]; },
+    ok: () => {
+      const w = save.weapons[slot], lvl = save.weapons.owned[w];
+      if (lvl === undefined) { if (pay(TAB[w].price)) save.weapons.owned[w] = 0; }
+      else if (lvl < 3) { if (pay(TAB[w].prices[lvl])) save.weapons.owned[w]++; }
+      else sfx('deny');
+      persist();
+    },
+    info: () => { const w = save.weapons[slot], lvl = save.weapons.owned[w]; return [TAB[w].desc.toUpperCase(), lvl === undefined ? `KÖP FÖR ${TAB[w].price} KR (ENTER)` : lvl < 3 ? `UPPGRADERA: ${TAB[w].prices[lvl]} KR (ENTER)` : 'FULLT UPPGRADERAD']; },
+  });
   const finish = () => {
-    // ett ägt vapen måste vara valt
-    for (const [slot, TAB] of [['front', FRONT], ['rear', REAR]]) if (save.weapons.owned[save.weapons[slot]] === undefined) save.weapons[slot] = Object.keys(TAB).find((k) => save.weapons.owned[k] !== undefined);
+    for (const [slot, ORDER] of [['front', FRONT_ORDER], ['rear', REAR_ORDER]]) if (save.weapons.owned[save.weapons[slot]] === undefined) save.weapons[slot] = ORDER.find((k) => save.weapons.owned[k] !== undefined);
     if (!owned()) view = save.car;
     persist(); garage = null; back();
   };
-  const m = new Menu('GARAGET', [
-    { label: 'BIL', value: () => CARS[view].name.toUpperCase() + (owned() ? '' : '  ' + CARS[view].price + ' KR'), left: () => cycleCar(-1), right: () => cycleCar(1), ok: () => { if (owned()) return; if (save.money < CARS[view].price) { sfx('deny'); return; } save.money -= CARS[view].price; save.garage[view] = { upg: { motor: 0, dack: 0, pansar: 0, nitro: 0 }, color: colorList[CAR_ORDER.indexOf(view) % colorList.length] }; save.car = view; persist(); sfx('buy'); }, info: () => owned() ? CARS[view].desc.toUpperCase() : `KÖP FÖR ${CARS[view].price} KR (ENTER)` },
-    { label: 'FÄRG', value: () => '', vcol: () => 0xffffff, dis: () => !owned(), left: () => { const i = colorList.indexOf(g().color); g().color = colorList[(i + colorList.length - 1) % colorList.length]; persist(); }, right: () => { const i = colorList.indexOf(g().color); g().color = colorList[(i + 1) % colorList.length]; persist(); } },
-    ...UPG_ORDER.map(upItem),
-    weapItem('front', FRONT), weapItem('rear', REAR),
+  const toMain = () => { G.menu = main; };
+  const sub = (title, items) => new Menu(title, [...items, { label: 'TILLBAKA', ok: () => { sfx('back'); toMain(); } }], { w: 254, back: toMain, rowH: 14 });
+  const main = new Menu('GARAGET', [
+    { label: 'FORDON', value: () => CARS[view].name.toUpperCase() + (owned() ? '' : '  ' + CARS[view].price + ' KR'), left: () => cycleCar(-1), right: () => cycleCar(1), ok: () => { if (owned()) return; if (pay(CARS[view].price)) { save.garage[view] = { color: CARS[view].color }; gEntry(view); save.car = view; pat = 'rander'; persist(); } }, info: () => owned() ? CARS[view].desc.toUpperCase() : `KÖP FÖR ${CARS[view].price} KR (ENTER)` },
+    { label: 'FÄRG', value: () => '', dis: () => !owned(), left: () => { const i = colorList.indexOf(g().color); g().color = colorList[(i + colorList.length - 1 + (i < 0 ? 1 : 0)) % colorList.length]; persist(); }, right: () => { const i = colorList.indexOf(g().color); g().color = colorList[(i + 1) % colorList.length]; persist(); } },
+    {
+      label: 'LACK', dis: () => !owned(),
+      value: () => PATTERNS[pat].name.toUpperCase() + (owned() && !g().patterns.includes(pat) ? '  ' + PATTERNS[pat].price + ' KR' : ''),
+      left: () => { const i = PATTERN_ORDER.indexOf(pat); pat = PATTERN_ORDER[(i + PATTERN_ORDER.length - 1) % PATTERN_ORDER.length]; if (g().patterns.includes(pat)) { g().pattern = pat; persist(); } },
+      right: () => { const i = PATTERN_ORDER.indexOf(pat); pat = PATTERN_ORDER[(i + 1) % PATTERN_ORDER.length]; if (g().patterns.includes(pat)) { g().pattern = pat; persist(); } },
+      ok: () => { if (g().patterns.includes(pat)) return; if (pay(PATTERNS[pat].price)) { g().patterns.push(pat); g().pattern = pat; persist(); } },
+      info: () => (owned() && !g().patterns.includes(pat) ? `KÖP LACKEN FÖR ${PATTERNS[pat].price} KR (ENTER)` : 'BLÄDDRA MED VÄNSTER/HÖGER'),
+    },
+    { label: 'UPPGRADERINGAR  >', dis: () => !owned(), ok: () => { sfx('ok'); G.menu = sub('UPPGRADERINGAR', UPG_ORDER.map(upItem)); }, info: () => 'MOTOR, DÄCK, PANSAR, NITRO, RAMBOCK, STRÅLKASTARE' },
+    { label: 'TILLBEHÖR  >', dis: () => !owned(), ok: () => { sfx('ok'); G.menu = sub('TILLBEHÖR', ACC_ORDER.map(accItem)); }, info: () => 'SPOILER, SPIKDÄCK, SJÄLVLAGNING, NEON, TUTA, TURBO' },
+    { label: 'VAPEN  >', ok: () => { sfx('ok'); G.menu = sub('VAPEN', [weapItem('front', FRONT, FRONT_ORDER), weapItem('rear', REAR, REAR_ORDER)]); }, info: () => `${FRONT_ORDER.length} FRAMVAPEN OCH ${REAR_ORDER.length} BAKVAPEN` },
     { label: 'KLAR', ok: () => { sfx('ok'); finish(); } },
-  ], { w: 250, back: finish, rowH: 14 });
-  garage = { menu: m, get view() { return view; }, owned };
-  G.menu = m; G.state = 'garage';
+  ], { w: 254, back: finish, rowH: 14 });
+  garage = { main, get view() { return view; }, get pat() { return pat; }, owned };
+  G.menu = main; G.state = 'garage';
 }
-const bar = (l, n) => '#'.repeat(l) + '-'.repeat(n - l);
 const bigCars = new Map();
 function drawGarage(t) {
-  const m = garage.menu, view = garage.view;
+  const m = G.menu, view = garage.view;
   dimBg(0.55);
   const r = m.draw(ctx, VW, VH, t, VW - 262, 8, 254);
-  // förhandsvisning
-  const LW = Math.max(150, VW - 262 - 16), LX = 8, LH = r.H;
+  const LW = Math.max(150, VW - 262 - 16), LX = 8, LH = Math.max(r.H, 168);
   panel(ctx, LX, 8, LW, LH, 'rgba(20,16,40,0.78)', '#6a6488');
   const px = LX + Math.round(LW / 2), py = 8 + Math.round(LH * 0.42);
-  const col = garage.owned() ? save.garage[view].color : 0x8a8694;
+  const ge = garage.owned() ? gEntry(view) : null;
+  const col = ge ? ge.color : 0x8a8694;
+  const look = { pal: palette(col), pattern: garage.pat, spoiler: !!(ge && ge.acc.spoiler), ramm: ge ? ge.upg.ramm : 0 };
   const ang = (t * 0.6) % (Math.PI * 2);
   const k = Math.round(ang / (Math.PI * 2) * 32) % 32;
-  const key = view + col + ':' + k;
-  if (!bigCars.has(key)) { if (bigCars.size > 200) bigCars.clear(); bigCars.set(key, renderCar(CARS[view].model, palette(col), k / 32 * Math.PI * 2, 2)); }
+  const key = view + lookKey(look) + ':' + k;
+  if (!bigCars.has(key)) { if (bigCars.size > 160) bigCars.clear(); bigCars.set(key, renderCar(CARS[view].model, look, k / 32 * Math.PI * 2, 2)); }
   const spr = bigCars.get(key);
-  // podium
-  ctx.fillStyle = '#2a2640'; for (let y = -10; y <= 10; y++) { const w = Math.round(Math.sqrt(100 - y * y) * 4.2); ctx.fillRect(px - w, py + 22 + Math.round(y / 2), w * 2, 1); }
-  ctx.fillStyle = '#3c3858'; for (let y = -9; y <= 9; y++) { const w = Math.round(Math.sqrt(81 - y * y) * 4.2); ctx.fillRect(px - w, py + 21 + Math.round(y / 2), w * 2, 1); }
-  ctx.drawImage(spr, px - spr.width / 2, py + 22 - 27 * 2);
+  ctx.fillStyle = '#2a2640'; for (let y = -10; y <= 10; y++) { const w = Math.round(Math.sqrt(100 - y * y) * 4.4); ctx.fillRect(px - w, py + 22 + Math.round(y / 2), w * 2, 1); }
+  ctx.fillStyle = '#3c3858'; for (let y = -9; y <= 9; y++) { const w = Math.round(Math.sqrt(81 - y * y) * 4.4); ctx.fillRect(px - w, py + 21 + Math.round(y / 2), w * 2, 1); }
+  if (ge && ge.acc.neon) { ctx.fillStyle = 'rgba(60,220,255,0.35)'; ctx.beginPath(); ctx.ellipse(px, py + 22, 30, 12, 0, 0, 7); ctx.fill(); }
+  ctx.drawImage(spr, px - spr.ox, py + 22 - spr.oy);
   drawText(ctx, CARS[view].name.toUpperCase(), px, 14, { big: true, grad: GRAD.gold, align: 'c' });
-  // statistik
-  const st = CARS[view];
-  const rows = [['FART', st.vmax / 330], ['ACCELERATION', st.acc / 400], ['GREPP', st.grip / 1450], ['TÅLIGHET', (1.2 - st.armor) / 0.6], ['VIKT', st.mass / 1.6]];
+  const st = ge ? carStats(view, ge.upg, ge.acc) : carStats(view);
+  const rows = [['FART', st.vmax / 360], ['ACCELERATION', st.acc / 470], ['GREPP', st.grip / 1650], ['TÅLIGHET', (1.25 - st.armor) / 1.0], ['VIKT', st.mass / 3.6]];
   const bw = LW - 76;
   rows.forEach(([n, v], i) => {
     const y = 8 + LH - 50 + i * 9;
@@ -353,9 +400,8 @@ function drawGarage(t) {
     ctx.fillStyle = '#fff2a0'; ctx.fillRect(LX + 68, y - 1, Math.round(bw * Math.max(0.05, Math.min(1, v))), 1);
   });
   drawText(ctx, save.money + ' KR', VW - 12, r.Y + r.H + 6, { big: true, grad: GRAD.gold, align: 'r' });
-  // färgruta i menyn
   const ci = m.items.findIndex((it) => it.label === 'FÄRG');
-  if (garage.owned()) { const yy = r.Y + 24 + ci * 14 + 2; ctx.fillStyle = '#1a1426'; ctx.fillRect(r.X + r.W - 30, yy, 14, 9); ctx.fillStyle = css(save.garage[view].color); ctx.fillRect(r.X + r.W - 29, yy + 1, 12, 7); }
+  if (ci >= 0 && ge) { const yy = r.Y + 24 + ci * 14 + 2; ctx.fillStyle = '#1a1426'; ctx.fillRect(r.X + r.W - 30, yy, 14, 9); ctx.fillStyle = css(ge.color); ctx.fillRect(r.X + r.W - 29, yy + 1, 12, 7); }
 }
 
 // ---------- resultat ----------
@@ -373,7 +419,7 @@ function showResults() {
     R.finishOrder.forEach((c, k) => {
       const prize = Math.round((PRIZES[k] || 0) * cfg.prizeMul);
       res.rows.push({ name: c.isPlayer ? 'DU' : c.name.toUpperCase(), time: c.finishTime, best: c.bestLap, prize, me: c.isPlayer, color: c.color, kills: c.kills });
-      if (c.isPlayer) { res.place = k + 1; res.prize = prize; res.pickup = c.money; res.money = prize + c.money; }
+      if (c.isPlayer) { res.place = k + 1; res.prize = prize; res.pickup = c.money; res.money = prize + c.money; res.roadkill = c.roadkill; res.kills = c.kills; }
     });
     save.money += res.money;
     if (P.bestLap && (!save.records[cfg.track] || P.bestLap < save.records[cfg.track])) save.records[cfg.track] = P.bestLap;
@@ -413,7 +459,7 @@ function drawResults(t) {
     drawText(ctx, 'BÄSTA VARV ' + fmtTime(res.best), VW / 2, 112, { big: true, grad: GRAD.white, align: 'c' });
     if (res.record && ((t * 3) | 0) % 2) drawText(ctx, 'NYTT REKORD!', VW / 2, 132, { big: true, scale: 2, grad: GRAD.fire, align: 'c' });
   } else {
-    const H = 44 + res.rows.length * 12 + 40;
+    const H = 44 + res.rows.length * 12 + 52;
     panel(ctx, X, 10, W, H);
     drawText(ctx, 'RESULTAT – ' + trackName(res.cfg.track), VW / 2, 18, { big: true, grad: GRAD.gold, align: 'c' });
     drawText(ctx, 'FÖRARE', X + 30, 34, { color: 0x9a94b0 }); drawText(ctx, 'TID', X + W * 0.5, 34, { color: 0x9a94b0 }); drawText(ctx, 'BÄSTA VARV', X + W * 0.68, 34, { color: 0x9a94b0 }); drawText(ctx, 'PRIS', X + W - 10, 34, { color: 0x9a94b0, align: 'r' });
@@ -430,6 +476,7 @@ function drawResults(t) {
     const y = 46 + res.rows.length * 12 + 6;
     drawText(ctx, `PRIS ${res.prize} KR  +  UPPLOCKAT ${res.pickup} KR  =  ${res.money} KR`, VW / 2, y, { color: 0xffe080, align: 'c' });
     drawText(ctx, `I KASSAN: ${save.money} KR`, VW / 2, y + 12, { big: true, grad: GRAD.gold, align: 'c' });
+    drawText(ctx, `UTSLAGNA BILAR: ${res.kills || 0}   ÖVERKÖRDA DJUR: ${res.roadkill || 0}`, VW / 2, y + 26, { color: 0xd8d4e8, align: 'c' });
   }
   if (((t * 2) | 0) % 2) drawText(ctx, input.touch ? 'TRYCK FÖR ATT FORTSÄTTA' : 'TRYCK ENTER', VW / 2, VH - 16, { color: 0xffffff, align: 'c' });
 }
@@ -489,7 +536,7 @@ function drawTitle(t) {
   drawText(ctx, 'KURVKUNGEN', VW / 2, y + wob, { big: true, scale: 5, grad: GRAD.fire, align: 'c' });
   drawText(ctx, 'ISOMETRISK PIXELRACING MED VAPEN', VW / 2, y + 44, { color: 0xfff2c0, align: 'c' });
   if (((t * 2) | 0) % 2) drawText(ctx, input.touch ? 'TRYCK FÖR ATT STARTA' : 'TRYCK ENTER', VW / 2, VH * 0.62, { big: true, grad: GRAD.white, align: 'c' });
-  const help = input.touch ? 'STYR MED KNAPPARNA · BILEN GASAR SJÄLV (AUTOGAS)' : 'PILAR = KÖR · MELLANSLAG = SKJUT · Z = BAKVAPEN · SHIFT = NITRO · R = TILLBAKA PÅ BANAN';
+  const help = input.touch ? 'STYR MED KNAPPARNA · BILEN GASAR SJÄLV (AUTOGAS)' : 'PILAR = KÖR · MELLANSLAG = SKJUT · Z = BAKVAPEN · SHIFT = NITRO · T = TUTA · R = TILLBAKA';
   drawText(ctx, help, VW / 2, VH - 26, { color: 0xd8d4e8, align: 'c' });
   drawText(ctx, 'V' + VERSION, VW - 4, VH - 10, { color: 0x9a94b0, align: 'r' });
 }
@@ -575,6 +622,7 @@ function handle(a) {
   const st = G.state;
   if (st === 'title') { if (a === 'ok' || (a && a.tap)) { sfx('ok'); G.menu = mainMenu(); G.state = 'menu'; } return; }
   if (st === 'menu' || st === 'sub' || st === 'garage' || st === 'pause') { if (a === 'pause' && st === 'pause') { G.state = 'race'; layoutTouch(); return; } if (a !== 'pause') G.menu.action(a); return; }
+  if (st === 'race' && a === 'horn') { const P = G.race.player; if (P && P.st.horn) { sfx('horn'); G.race.animals.scare && G.race.animals.scare(P.x, P.y, 160); } return; }
   if (st === 'race') { if (a === 'reset' && G.race.player && G.race.phase === 'race' && G.race.player.wreckT <= 0) { G.race.respawn(G.race.player); return; } if (a === 'pause') { G.menu = pauseMenu(); G.state = 'pause'; layoutTouch(); stopEnginesQuiet(); } return; }
   if (st === 'results' || st === 'standings') { if (a === 'ok' || (a && a.tap)) resultsNext(); }
 }

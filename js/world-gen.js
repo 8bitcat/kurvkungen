@@ -9,9 +9,10 @@ import { buildTrack, nearest } from './trackgeo.js?v=1';
 import { fbm, vnoise } from './noise.js?v=1';
 import { hash, sm } from './pix.js?v=1';
 import { THEMES } from './tracks.js?v=1';
+import { fieldAt } from './fields.js?v=1';
 import { SHX, SHY } from './iso.js?v=1';
 
-export const MAT = { LAND: 0, WATER: 1, LEAF: 2, ROCK: 3, SAND: 4, PILLAR: 5 };
+export const MAT = { LAND: 0, WATER: 1, LEAF: 2, ROCK: 3, SAND: 4, PILLAR: 5, BUILD: 6 };
 export const DECK = 0x80;
 
 // Närmaste banpunkt per 2×2-cell via exakt avståndstransform (Felzenszwalb) med argmin.
@@ -83,8 +84,13 @@ function segDist(px, py, ax, ay, bx, by) {
 export function makeWater(def) {
   const lakes = (def.lakes || []).map((l) => ({ ...l, c: Math.cos(l.rot || 0), s: Math.sin(l.rot || 0) }));
   const rivers = def.rivers || [];
+  const isl = def.island;
   return (x, y, wob) => {
     let best = -1e9;
+    if (isl) {
+      const e = Math.hypot((x - isl.x) / isl.rx, (y - isl.y) / isl.ry) * (1 - wob * 0.5);
+      best = (e - 1) * Math.min(isl.rx, isl.ry);
+    }
     for (const l of lakes) {
       const dx = x - l.x, dy = y - l.y;
       const lx = dx * l.c + dy * l.s, ly = -dx * l.s + dy * l.c;
@@ -131,6 +137,23 @@ export function generateWorld(def) {
     return sz / sw;
   });
   const water = makeWater(def);
+  let craterF = null;
+  if (th.craters) {
+    const CW = W >> 1, CH = H >> 1, cg = new Float32Array(CW * CH);
+    for (let k = 0; k < 90; k++) {
+      const cx = hash(k, 1, seed + 11) * W, cy = hash(k, 2, seed + 11) * H, R = 14 + hash(k, 3, seed + 11) ** 2 * 80;
+      const depth = R * 0.3, rim = R * 0.1;
+      const r0 = Math.ceil(R * 1.7 / 2);
+      const gx0 = Math.floor(cx / 2), gy0 = Math.floor(cy / 2);
+      for (let gy = gy0 - r0; gy <= gy0 + r0; gy++) for (let gx = gx0 - r0; gx <= gx0 + r0; gx++) {
+        if (gx < 0 || gy < 0 || gx >= CW || gy >= CH) continue;
+        const r = Math.hypot(gx * 2 + 1 - cx, gy * 2 + 1 - cy) / R;
+        if (r > 1.7) continue;
+        cg[gy * CW + gx] += (r < 1 ? -depth * (1 - r * r) : 0) + rim * Math.exp(-(((r - 1) / 0.22) ** 2));
+      }
+    }
+    craterF = (x, y) => { const gx = Math.min(CW - 1, x >> 1), gy = Math.min(CH - 1, y >> 1); return cg[gy * CW + gx]; };
+  }
 
   // Broar: där vatten finns under vägen
   for (let i = 0; i < T.n; i++) {
@@ -155,17 +178,18 @@ export function generateWorld(def) {
       const gi = near[(y >> 1) * GW + (x >> 1)];
       const ex = T.X[gi] - X, ey = T.Y[gi] - Y;
       const est = Math.sqrt(ex * ex + ey * ey);
-      let dist, zr, hw, si;
-      if (est < 230) { nearest(T, X, Y, gi, 2, q); dist = q.dist; zr = q.z; hw = q.hw; si = q.i; }
-      else { dist = est; zr = T.Z[gi]; hw = T.HW[gi]; si = gi; }
+      let dist, zr, zrb, hw, si;
+      if (est < 230) { nearest(T, X, Y, gi, 2, q); dist = q.dist; zr = q.z; zrb = q.zb; hw = q.hw; si = q.i; }
+      else { dist = est; zr = T.Z[gi]; zrb = T.ZB[gi]; hw = T.HW[gi]; si = gi; }
       RD[ci] = Math.min(255, Math.max(0, dist - hw));
       // naturlig mark
-      const zb = zr + (zField(X, Y) - zr) * sm(24, 150, dist);
+      const zb = zrb + (zField(X, Y) - zrb) * sm(24, 150, dist);
       let land = zb + hillF(X, Y) * th.hillAmp * 2 * sm(30, 240, dist) + detF(X, Y) * th.detAmp * 2 * sm(20, 90, dist);
       if (mesaF) {
         const mv = mesaF(X, Y);
         land += th.mesaH * (sm(th.mesa, th.mesa + 0.018, mv) + 0.6 * sm(th.mesa + 0.1, th.mesa + 0.118, mv)) * sm(60, 110, dist);
       }
+      if (craterF) land += craterF(x, y) * sm(hw + 14, hw + 60, dist);
       if (land < 3) land = 3;
       const wob = wobF(X, Y);
       const wd = water(X, Y, wob);
@@ -224,6 +248,69 @@ export function generateWorld(def) {
   for (let ci = 0; ci < N; ci++) {
     if ((mat[ci] & DECK) || RD[ci] < 8) continue;
     if (Hm[ci] > C[ci] - 0.5) Hm[ci] = C[ci] - 0.5;
+  }
+
+  // Byggnader: stadskvarter med platta tak, eller lador och bondgårdar med sadeltak
+  const B = [], bid = new Uint16Array(th.buildings ? N : 1);
+  if (th.buildings) {
+    const tryBuild = (x0, y0, x1, y1, hT, kind, style, axis) => {
+      x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+      if (x0 < 4 || y0 < 4 || x1 >= W - 4 || y1 >= H - 4) return false;
+      let gmin = 1e9, gmax = -1e9, cmin = 1e9;
+      for (let y = y0; y <= y1; y += 2) for (let x = x0; x <= x1; x += 2) {
+        const ci = y * W + x, m = mat[ci];
+        if (!(m === MAT.LAND || m === MAT.SAND || m === MAT.ROCK) || RD[ci] < (kind === 'city' ? 14 : 22)) return false;
+        const g = Hm[ci]; if (g < gmin) gmin = g; if (g > gmax) gmax = g; if (C[ci] < cmin) cmin = C[ci];
+      }
+      if (gmax - gmin > 6) return false;
+      const base = gmax;
+      let top = base + hT;
+      if (top > cmin - 1) top = cmin - 1;
+      if (top - base < (kind === 'city' ? 9 : 13)) return false;
+      const wall = kind === 'city' ? top : base + (top - base) * 0.58;
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, half = axis === 0 ? (y1 - y0) / 2 : (x1 - x0) / 2;
+      const id = B.length + 1;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const ci = y * W + x;
+        let h = top;
+        if (kind === 'city') { if (x === x0 || x === x1 || y === y0 || y === y1) h = top + 1.2; }
+        else { const v = axis === 0 ? Math.abs(y + 0.5 - cy) : Math.abs(x + 0.5 - cx); h = wall + (top - wall) * Math.max(0, 1 - v / (half + 0.5)); }
+        Hm[ci] = h; mat[ci] = MAT.BUILD; bid[ci] = id;
+      }
+      if (kind === 'city') for (let k = 0; k < 3; k++) {
+        if (hash(id, k, seed + 81) > 0.6) continue;
+        const ax = x0 + 3 + Math.floor(hash(id, k, seed + 82) * (x1 - x0 - 8)), ay = y0 + 3 + Math.floor(hash(id, k, seed + 83) * (y1 - y0 - 8));
+        for (let y = ay; y < ay + 4; y++) for (let x = ax; x < ax + 4; x++) if (x < x1 - 1 && y < y1 - 1) Hm[y * W + x] = top + 2.4;
+      }
+      B.push({ x0, y0, x1, y1, base, wall, top, kind, style, axis, cx, cy });
+      return true;
+    };
+    if (th.buildings === 'city') {
+      const S = 66;
+      for (let gy = 0; gy < H / S; gy++) for (let gx = 0; gx < W / S; gx++) {
+        const ox = gx * S + 7, oy = gy * S + 7, w = S - 14;
+        if (forestF(ox + w / 2, oy + w / 2) > th.forest) continue;
+        const split = hash(gx, gy, seed + 71);
+        const parts = split < 0.35 ? [[0, 0, 1, 1]] : split < 0.65 ? [[0, 0, 0.47, 1], [0.53, 0, 1, 1]] : split < 0.85 ? [[0, 0, 1, 0.47], [0, 0.53, 1, 1]] : [[0, 0, 0.47, 0.47], [0.53, 0, 1, 0.47], [0, 0.53, 0.47, 1], [0.53, 0.53, 1, 1]];
+        parts.forEach(([a, b, c, d], k) => {
+          const hT = 12 + hash(gx * 4 + k, gy, seed + 72) ** 1.5 * 46;
+          tryBuild(ox + a * w, oy + b * w, ox + c * w, oy + d * w, hT, 'city', Math.floor(hash(gx * 4 + k, gy, seed + 73) * 6), 0);
+        });
+      }
+    } else {
+      const S = 230;
+      for (let gy = 0; gy < H / S; gy++) for (let gx = 0; gx < W / S; gx++) {
+        if (hash(gx, gy, seed + 74) > 0.75) continue;
+        const cx = gx * S + 40 + hash(gx, gy, seed + 75) * (S - 80), cy = gy * S + 40 + hash(gx, gy, seed + 76) * (S - 80);
+        const ax = hash(gx, gy, seed + 77) > 0.5 ? 0 : 1;
+        const L = 40, Wd = 24;
+        const ok = ax === 0 ? tryBuild(cx - L / 2, cy - Wd / 2, cx + L / 2, cy + Wd / 2, 24, 'barn', 0, 0) : tryBuild(cx - Wd / 2, cy - L / 2, cx + Wd / 2, cy + L / 2, 24, 'barn', 0, 1);
+        if (ok) {
+          const hx = cx + (ax === 0 ? 0 : 34), hy = cy + (ax === 0 ? 30 : 0);
+          tryBuild(hx - 11, hy - 9, hx + 11, hy + 9, 19, 'house', Math.floor(hash(gx, gy, seed + 78) * 3), ax);
+        }
+      }
+    }
   }
 
   // Räcken där vägen går längs ett stup
@@ -287,7 +374,7 @@ export function generateWorld(def) {
       if (xx >= 0 && yy >= 0 && xx < W && yy < H) shadow[yy * W + xx] = 1;
     }
   };
-  const TREE_H = { lov: 30, gran: 34, bjork: 30, snogran: 34, kaktus: 20, buske: 10, torr: 24 };
+  const TREE_H = { lov: 30, gran: 34, bjork: 30, snogran: 34, kaktus: 20, buske: 10, torr: 24, palm: 36, hostlov: 30, lampa: 30, sten: 9 };
   const S2 = 13;
   for (let gy = 0; gy < H / S2; gy++) for (let gx = 0; gx < W / S2; gx++) {
     const x = gx * S2 + hash(gx, gy, seed + 31) * S2, y = gy * S2 + hash(gx, gy, seed + 32) * S2;
@@ -296,6 +383,7 @@ export function generateWorld(def) {
     const ci = iy * W + ix, rd = RD[ci];
     if (mat[ci] !== MAT.LAND && mat[ci] !== MAT.SAND) continue;
     if (rd < 14 || slopeAt(ix, iy) > 4) continue;
+    if (th.fields) { const f = fieldAt(x, y, seed); if (f && !f.edge) continue; }
     const near = rd < 90;
     const dens = th.treeDensity * (near ? 0.55 : 0.12) * (0.4 + forestF(x, y));
     if (hash(gx, gy, seed + 33) > dens) continue;
@@ -306,7 +394,21 @@ export function generateWorld(def) {
     const v = Math.floor(hash(gx, gy, seed + 35) * 4);
     objects.push({ k: kind, x, y, z: g, v });
     const th2 = TREE_H[kind];
-    stampShadow(x, y, kind === 'buske' ? 5 : kind === 'kaktus' ? 3 : 8, kind === 'buske' ? 3 : kind === 'kaktus' ? 2 : 5.5, th2 * 0.62);
+    if (kind === 'lampa') continue;
+    stampShadow(x, y, kind === 'buske' || kind === 'sten' ? 5 : kind === 'kaktus' ? 3 : 8, kind === 'buske' || kind === 'sten' ? 3 : kind === 'kaktus' ? 2 : 5.5, th2 * 0.62);
+  }
+  // höbalar på vetefälten
+  if (th.fields) {
+    const S4 = 24;
+    for (let gy = 0; gy < H / S4; gy++) for (let gx = 0; gx < W / S4; gx++) {
+      const x = gx * S4 + 12, y = gy * S4 + 12;
+      const f = fieldAt(x, y, seed);
+      if (!f || f.edge || f.type !== 1 || hash(gx, gy, seed + 91) > 0.35) continue;
+      const ix = x | 0, iy = y | 0, ci = iy * W + ix;
+      if (ix < 2 || iy < 2 || ix >= W - 2 || iy >= H - 2 || mat[ci] !== MAT.LAND || RD[ci] < 16 || Hm[ci] + 8 > C[ci] + 3) continue;
+      objects.push({ k: 'bal', x, y, z: Hm[ci], v: Math.floor(hash(gx, gy, seed + 92) * 4) });
+      stampShadow(x, y, 5, 3, 6);
+    }
   }
   // stenblock
   const S3 = 23;
@@ -326,5 +428,5 @@ export function generateWorld(def) {
   for (let i = 0; i < T.n; i++) if (T.Z[i] > ZTOP) ZTOP = T.Z[i];
   ZTOP = Math.ceil(ZTOP + 2); ZBOT = Math.floor(ZBOT);
   const OX = H, OY = ZTOP, CW = W + H, CH = Math.ceil((W + H) / 2) + ZTOP - ZBOT;
-  return { def, th, T, W, H, GW, GH, near, Hm, mat, shadow, objects, ZTOP, ZBOT, OX, OY, CW, CH, seed };
+  return { def, th, T, W, H, GW, GH, near, Hm, mat, shadow, objects, ZTOP, ZBOT, OX, OY, CW, CH, seed, B, bid };
 }

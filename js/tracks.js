@@ -10,7 +10,7 @@ export const THEMES = {
     water: 0x2f46d2, water2: 0x5470f2, waterDeep: 0x1d2c9e, foam: 0xb8ccff,
     leaf: 0x2c6a2a, leaf2: 0x4c9036, leafDk: 0x173f1d, trunk: 0x5e4232,
     hillAmp: 10, detAmp: 3, cliffShore: 0.75, beach: 26, forest: 0.53, treeDensity: 0.55, trees: ['lov', 'gran', 'lov', 'bjork'],
-    rocks: 0.25, fill: 2.4, cut: 0.7, outside: 0x2f46d2, ground: 'grass',
+    rocks: 0.25, fill: 2.4, cut: 0.7, outside: 0x2f46d2, ground: 'grass', animals: ['hare', 'rav', 'radjur', 'alg', 'alg', 'hare'],
   },
   okn: {
     name: 'Öken',
@@ -20,7 +20,7 @@ export const THEMES = {
     water: 0x2a7cb4, water2: 0x4aa2d4, waterDeep: 0x1a5486, foam: 0xbfe6f0,
     leaf: 0x6e7a2e, leaf2: 0x8e9a3c, leafDk: 0x404820, trunk: 0x6a4a30,
     hillAmp: 8, detAmp: 3, cliffShore: 0.2, beach: 20, forest: 2, treeDensity: 0.35, trees: ['kaktus', 'kaktus', 'buske', 'torr'],
-    rocks: 0.6, mesa: 0.6, mesaH: 30, fill: 2.6, cut: 0.9, outside: 0xd69a58, ground: 'sand',
+    rocks: 0.6, mesa: 0.6, mesaH: 30, fill: 2.6, cut: 0.9, outside: 0xd69a58, ground: 'sand', animals: ['odla', 'odla', 'kamel', 'hare'],
   },
   fjall: {
     name: 'Fjäll',
@@ -30,7 +30,58 @@ export const THEMES = {
     water: 0x8cc2e2, water2: 0xbfe2f4, waterDeep: 0x6aa2cc, foam: 0xe8f6ff, ice: true,
     leaf: 0x1f4c3c, leaf2: 0x2f6a4c, leafDk: 0x10281f, trunk: 0x4a3428,
     hillAmp: 16, detAmp: 4, cliffShore: 0.5, beach: 30, forest: 0.5, treeDensity: 0.55, trees: ['snogran', 'snogran', 'gran'],
-    rocks: 0.35, fill: 2.0, cut: 0.7, outside: 0xe2e8f2, ground: 'snow',
+    rocks: 0.35, fill: 2.0, cut: 0.7, outside: 0xe2e8f2, ground: 'snow', animals: ['hare', 'ren', 'ren', 'bjorn', 'rav'],
+  },
+  stad: {
+    name: 'Stad',
+    grass: 0x5a9a3a, grass2: 0x74b244, grass3: 0x447a2c, dirt: 0x8a7050, sand: 0xd8c690, sand2: 0xc4ae74,
+    road: 0x58565e, line: 0xf2f0e8, edge: 0xf2f0e8, shoulder: 0xb8b4ac, curbR: 0xc8323a, curbW: 0xf0f0f0,
+    rock: 0x8c8a88, rock2: 0x9e9a94, rockDk: 0x4a4850, deck: 0xa8a49e,
+    water: 0x2a5a8a, water2: 0x4a80b0, waterDeep: 0x1a3a64, foam: 0xa8c8e8,
+    leaf: 0x357a30, leaf2: 0x52a03c, leafDk: 0x1c4a1e, trunk: 0x5e4232,
+    hillAmp: 1, detAmp: 0.5, cliffShore: 1, beach: 10, forest: 0.62, treeDensity: 0.22, trees: ['lov', 'lov', 'bjork'],
+    rocks: 0.05, fill: 3, cut: 1, outside: 0x2a5a8a, ground: 'city', buildings: 'city', lamps: true, kerb: true, animals: ['duva', 'duva', 'ratta'],
+  },
+  vulkan: {
+    name: 'Vulkan',
+    grass: 0x4a4246, grass2: 0x5a5054, grass3: 0x3a3438, dirt: 0x6a4a3a, sand: 0x5a4a44, sand2: 0x4a3c38,
+    road: 0x6a666e, line: 0xf2c232, edge: 0xe8e0d8, shoulder: 0x5a4e4a, curbR: 0xd8402a, curbW: 0xf0e8e0,
+    rock: 0x3e3438, rock2: 0x524446, rockDk: 0x221c20, deck: 0x7a7470,
+    water: 0xf06a1a, water2: 0xffc23c, waterDeep: 0xc0321a, foam: 0xfff2a0, lava: true,
+    leaf: 0x4a4430, leaf2: 0x5a5438, leafDk: 0x2a2820, trunk: 0x3a2e28,
+    hillAmp: 12, detAmp: 4, cliffShore: 1, beach: 10, forest: 2, treeDensity: 0.3, trees: ['torr', 'torr', 'buske'],
+    rocks: 0.9, mesa: 0.58, mesaH: 34, fill: 2.6, cut: 1, outside: 0x2a2226, ground: 'ash', animals: ['odla'],
+  },
+  host: {
+    name: 'Höst',
+    grass: 0x8aa040, grass2: 0xa8b850, grass3: 0x6a8a34, dirt: 0x8a6a40, sand: 0xd8c690, sand2: 0xc4ae74,
+    road: 0x8e8c88, line: 0xf2f0e8, edge: 0xf2ece0, shoulder: 0x9a8460, curbR: 0xcc3038, curbW: 0xf2eee2,
+    rock: 0x8e8a86, rock2: 0xa09a90, rockDk: 0x575460, deck: 0xb0a898,
+    water: 0x3a6ab8, water2: 0x5a8ad0, waterDeep: 0x24488a, foam: 0xb8ccf0,
+    leaf: 0xc0602a, leaf2: 0xe8a030, leafDk: 0x7a3018, trunk: 0x5e4232,
+    leafMix: [[0xc0602a, 0xe8a030, 0x7a3018], [0xb8302a, 0xe05a3a, 0x6a1a14], [0xd8a028, 0xf2d050, 0x8a6018], [0x4a7a2e, 0x6a9a3a, 0x2a4a1c]],
+    hillAmp: 9, detAmp: 3, cliffShore: 0.3, beach: 14, forest: 0.58, treeDensity: 0.45, trees: ['hostlov', 'hostlov', 'gran', 'bjork'],
+    rocks: 0.15, fill: 2.2, cut: 0.7, outside: 0x8aa040, ground: 'grass', fields: true, buildings: 'barn', animals: ['ko', 'ko', 'far', 'gris', 'hona'],
+  },
+  tropik: {
+    name: 'Tropik',
+    grass: 0x46a83c, grass2: 0x62c04a, grass3: 0x32882e, dirt: 0x8a6a40, sand: 0xf0dc9a, sand2: 0xdcc282,
+    road: 0xa49c8c, line: 0xf2c232, edge: 0xf6f2e8, shoulder: 0xd8c690, curbR: 0xd83a40, curbW: 0xf6f2ea,
+    rock: 0x9a8a78, rock2: 0xb0a08a, rockDk: 0x5a4e44, deck: 0xb89a70,
+    water: 0x28b8c8, water2: 0x7ae8ec, waterDeep: 0x1a58b0, foam: 0xf0ffff, shallow: 0x46d8d0,
+    leaf: 0x2a8a3a, leaf2: 0x5ac048, leafDk: 0x145a24, trunk: 0x6a4a30,
+    hillAmp: 8, detAmp: 3, cliffShore: 0.12, beach: 46, forest: 0.56, treeDensity: 0.5, trees: ['palm', 'palm', 'palm', 'buske'],
+    rocks: 0.12, fill: 2.2, cut: 0.7, outside: 0x1a58b0, ground: 'grass', animals: ['krabba', 'krabba', 'flamingo'],
+  },
+  manen: {
+    name: 'Månen',
+    grass: 0x9a9aa2, grass2: 0xb2b2ba, grass3: 0x80808a, dirt: 0x8a8a92, sand: 0xa4a4ac, sand2: 0x90909a,
+    road: 0x4a4a56, line: 0x60e0ff, edge: 0xf0f4ff, shoulder: 0x707078, curbR: 0x30b8f0, curbW: 0xf0f4ff,
+    rock: 0x7a7a84, rock2: 0x8c8c96, rockDk: 0x4a4a54, deck: 0x9a9aa6,
+    water: 0x2a2a34, water2: 0x3a3a46, waterDeep: 0x1a1a22, foam: 0x5a5a66,
+    leaf: 0x5a5a64, leaf2: 0x6a6a74, leafDk: 0x3a3a44, trunk: 0x4a4a54,
+    hillAmp: 6, detAmp: 3, cliffShore: 1, beach: 10, forest: 2, treeDensity: 0.2, trees: ['sten', 'sten', 'lampa'],
+    rocks: 0.8, fill: 2.2, cut: 0.8, outside: 0x07070e, ground: 'moon', craters: true, grav: 0.42, lamps: true, animals: ['alien'],
   },
 };
 
@@ -73,11 +124,76 @@ export const TRACKS = {
     lakes: [{ x: 1080, y: 1150, rx: 340, ry: 240, rot: -0.2 }],
     rivers: [],
   },
+  hamnstaden: {
+    id: 'hamnstaden', name: 'Hamnstaden', theme: 'stad', size: [2048, 2048], seed: 53, hw: 28,
+    points: [
+      [420, 1680, 10], [900, 1730, 10], [1320, 1700, 10], [1660, 1600, 10], [1790, 1380, 10],
+      [1620, 1200, 10], [1360, 1250, 10], [1140, 1110, 10], [1240, 900, 10], [1540, 840, 10],
+      [1770, 700, 12], [1720, 470, 14], [1470, 360, 14], [1180, 400, 12], [960, 600, 10],
+      [700, 500, 10], [460, 360, 10], [260, 540, 10], [400, 780, 10], [250, 1020, 10],
+      [400, 1260, 10], [260, 1480, 10],
+    ],
+    lakes: [{ x: 1000, y: 100, rx: 900, ry: 150, rot: 0 }],
+    rivers: [{ w: 48, pts: [[-40, 1150], [600, 1100], [1000, 1010], [1400, 1060], [2100, 980]] }],
+  },
+  vulkanen: {
+    id: 'vulkanen', name: 'Vulkanen', theme: 'vulkan', size: [2048, 2048], seed: 61, hw: 28,
+    points: [
+      [600, 1720, 24], [1000, 1770, 24], [1400, 1710, 26], [1720, 1560, 28], [1800, 1300, 30],
+      [1640, 1100, 32], [1770, 880, 34], [1600, 660, 34], [1700, 420, 32], [1450, 250, 30],
+      [1150, 300, 28], [1000, 520, 26], [760, 420, 26], [520, 260, 26], [280, 380, 26],
+      [300, 640, 26], [520, 820, 26], [380, 1040, 24], [240, 1260, 24], [380, 1500, 24],
+    ],
+    lakes: [{ x: 1100, y: 1170, rx: 320, ry: 250, rot: 0.2 }],
+    rivers: [{ w: 50, pts: [[1100, 1170], [900, 820], [700, 680], [420, 570], [-40, 530]] }],
+  },
+  hostgarden: {
+    id: 'hostgarden', name: 'Höstgården', theme: 'host', size: [2048, 2048], seed: 71, hw: 28,
+    points: [
+      [500, 1700, 16], [900, 1780, 18], [1300, 1720, 20], [1600, 1560, 20], [1500, 1340, 18],
+      [1700, 1180, 20], [1780, 940, 22], [1560, 780, 22], [1300, 860, 20], [1100, 700, 18],
+      [1250, 480, 18], [1500, 330, 18], [1250, 200, 18], [900, 260, 18], [700, 460, 16],
+      [450, 380, 16], [260, 560, 16], [420, 780, 16], [300, 1000, 16], [460, 1200, 16],
+      [300, 1450, 16],
+    ],
+    lakes: [{ x: 880, y: 1160, rx: 210, ry: 150, rot: 0.1 }],
+    rivers: [{ w: 34, pts: [[880, 1160], [700, 1010], [540, 920], [200, 870], [-40, 880]] }],
+  },
+  palmon: {
+    id: 'palmon', name: 'Palmön', theme: 'tropik', size: [2048, 2048], seed: 83, hw: 28,
+    points: [
+      [520, 1600, 8], [900, 1700, 8], [1300, 1690, 8], [1620, 1560, 10], [1760, 1300, 12],
+      [1690, 1040, 12], [1790, 800, 10], [1640, 560, 10], [1400, 390, 10], [1100, 330, 10],
+      [850, 450, 12], [620, 330, 10], [380, 420, 10], [300, 680, 10], [480, 900, 12],
+      [330, 1120, 10], [300, 1380, 8],
+    ],
+    island: { x: 1040, y: 1020, rx: 930, ry: 900 },
+    lakes: [{ x: 1120, y: 1040, rx: 250, ry: 190, rot: 0.3 }],
+    rivers: [{ w: 60, pts: [[1120, 1040], [1300, 1350], [1440, 1650], [1560, 2100]] }],
+  },
+  manbasen: {
+    id: 'manbasen', name: 'Månbasen', theme: 'manen', size: [2048, 2048], seed: 97, hw: 28,
+    points: [
+      [600, 1720, 20], [1050, 1760, 20, { jump: 10 }], [1420, 1700, 22], [1720, 1520, 24], [1790, 1260, 26],
+      [1600, 1080, 28], [1760, 860, 30], [1690, 600, 30, { jump: 9 }], [1460, 420, 30], [1180, 340, 30],
+      [900, 420, 28], [700, 300, 28], [440, 340, 26], [260, 560, 24, { jump: 9 }], [380, 820, 22],
+      [270, 1020, 22], [420, 1250, 20], [300, 1490, 20],
+    ],
+    lakes: [], rivers: [],
+  },
 };
-// Varje bana finns även baklänges (samma terräng, omvänd körriktning)
+// Varje bana finns även baklänges och på natten (samma terräng)
 for (const id of Object.keys(TRACKS)) {
   const t = TRACKS[id];
-  TRACKS[id + '_r'] = { ...t, id: id + '_r', name: t.name + ' B', rev: true, points: [t.points[0], ...t.points.slice(1).reverse()] };
+  TRACKS[id + '_r'] = { ...t, id: id + '_r', base: id, rev: true, points: [t.points[0], ...t.points.slice(1).reverse()] };
 }
-export const TRACK_ORDER = ['sjoviken', 'kanjonen', 'fjallet', 'sjoviken_r', 'kanjonen_r', 'fjallet_r'];
-export const trackName = (id) => (TRACKS[id].rev ? TRACKS[id.replace('_r', '')].name.toUpperCase() + ' (BAKLÄNGES)' : TRACKS[id].name.toUpperCase());
+for (const id of Object.keys(TRACKS)) {
+  const t = TRACKS[id];
+  TRACKS[id + '_n'] = { ...t, id: id + '_n', base: t.base || id, night: true };
+}
+export const BASE_TRACKS = ['sjoviken', 'kanjonen', 'fjallet', 'hostgarden', 'hamnstaden', 'palmon', 'vulkanen', 'manbasen'];
+export const TRACK_ORDER = BASE_TRACKS.flatMap((b) => [b, b + '_r', b + '_n', b + '_r_n']);
+export const trackName = (id) => {
+  const t = TRACKS[id], base = TRACKS[t.base || id];
+  return base.name.toUpperCase() + (t.rev ? ' (BAKLÄNGES)' : '') + (t.night ? ' (NATT)' : '');
+};

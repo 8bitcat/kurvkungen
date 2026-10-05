@@ -67,6 +67,18 @@ export function sfx(name, vol = 1) {
     case 'oil': noise(t, 0.4, { f: 800, f2: 2000, q: 4, g: 0.25 * v }); break;
     case 'hit': noise(t, 0.04, { f: 4000, q: 2, g: 0.2 * v }); break;
     case 'land': noise(t, 0.15, { f: 300, type: 'lowpass', g: 0.5 * v }); break;
+    case 'cannon': tone(t, 0.45, 90, { type: 'sine', g: 0.8 * v, f2: 30 }); noise(t, 0.5, { f: 1200, f2: 120, type: 'lowpass', g: 0.7 * v }); break;
+    case 'laser': tone(t, 0.06, 1300 + Math.random() * 200, { type: 'square', g: 0.06 * v, f2: 900 }); break;
+    case 'flame': noise(t, 0.09, { f: 500 + Math.random() * 300, q: 0.8, g: 0.22 * v }); break;
+    case 'zap': noise(t, 0.35, { f: 5000, type: 'highpass', g: 0.35 * v }); tone(t, 0.3, 2200, { type: 'square', g: 0.12 * v, f2: 120 }); break;
+    case 'spike': tone(t, 0.08, 1800, { type: 'triangle', g: 0.2 * v }); noise(t, 0.3, { f: 2500, f2: 600, q: 2, g: 0.3 * v }); break;
+    case 'glue': tone(t, 0.25, 220, { type: 'sine', g: 0.3 * v, f2: 70 }); noise(t, 0.2, { f: 400, type: 'lowpass', g: 0.25 * v }); break;
+    case 'splat': noise(t, 0.14, { f: 500, f2: 150, type: 'lowpass', g: 0.6 * v }); tone(t, 0.1, 160, { type: 'sine', g: 0.4 * v, f2: 55 }); break;
+    case 'animalhit': tone(t, 0.1, 120, { type: 'sine', g: 0.5 * v, f2: 50 }); tone(t + 0.02, 0.16, 620, { type: 'square', g: 0.08 * v, f2: 380 }); break;
+    case 'moose': tone(t, 0.35, 75, { type: 'sine', g: 0.9 * v, f2: 28 }); noise(t, 0.35, { f: 900, f2: 120, type: 'lowpass', g: 0.8 * v }); noise(t + 0.03, 0.2, { f: 1600, q: 0.8, g: 0.4 * v }); break;
+    case 'thud': noise(t, 0.12, { f: 260, type: 'lowpass', g: 0.5 * v }); break;
+    case 'fell': noise(t, 0.06, { f: 3000, type: 'highpass', g: 0.4 * v }); tone(t, 0.2, 260, { type: 'triangle', g: 0.3 * v, f2: 80 }); noise(t + 0.05, 0.5, { f: 2200, q: 0.5, g: 0.15 * v }); break;
+    case 'horn': tone(t, 0.38, 440, { type: 'square', g: 0.14 * v }); tone(t, 0.38, 554, { type: 'square', g: 0.11 * v }); break;
   }
 }
 
@@ -126,6 +138,23 @@ const SONGS = {
     arp: bars(arp('A4', 'C5', 'E5'), arp('F4', 'A4', 'C5'), arp('C5', 'E5', 'G5'), arp('G4', 'B4', 'D5'), arp('A4', 'C5', 'E5'), arp('F4', 'A4', 'C5'), arp('C5', 'E5', 'G5'), arp('G4', 'B4', 'D5')),
     bass: bars(...['A2 - A3 - A2 - A3 - A2 - A3 - G2 - A2 -', 'F2 - F3 - F2 - F3 - F2 - F3 - E2 - F2 -', 'C3 - C4 - C3 - C4 - C3 - C4 - B2 - C3 -', 'G2 - G3 - G2 - G3 - G2 - G3 - A2 - B2 -'], ...['A2 - A3 - A2 - A3 - A2 - A3 - G2 - A2 -', 'F2 - F3 - F2 - F3 - F2 - F3 - E2 - F2 -', 'C3 - C4 - C3 - C4 - C3 - C4 - B2 - C3 -', 'G2 - G3 - G2 - G3 - G2 - G3 - A2 - B2 -']),
     drum: bars(...Array(8).fill('K . H . S . H . K . H K S . H H')),
+  },
+  // Nattpatrull – egen låt i 80-talsstil: studsigt synthlead, slap-oktavbas, trummaskin
+  nattpatrull: {
+    bpm: 112,
+    lead: bars(
+      'D5 - . D5 F5 - G5 - . . A5 - G5 F5 - .', 'D5 - . . . . C5 - D5 - . . . . . .', 'D5 - . D5 F5 - G5 - . . C6 - A5 G5 - .', 'A5 - G5 - F5 - E5 - . . D5 - . . . .',
+      'F5 - F5 - . F5 G5 - A5 - . . G5 - F5 -', 'E5 - . . C5 - . . E5 - F5 - G5 - . .', 'A5 - A5 - . A5 A#5 - A5 - . . G5 - F5 -', 'E5 - . . A4 - C#5 - E5 - . . . . . .',
+    ),
+    arp: bars(
+      '. . F4 . . . A4 . . . F4 . . . A4 .', '. . F4 . . . A4 . . . F4 . . . A4 .', '. . D4 . . . F4 . . . D4 . . . F4 .', '. . E4 . . . G4 . . . E4 . . . G4 .',
+      '. . D4 . . . F4 . . . D4 . . . F4 .', '. . E4 . . . G4 . . . E4 . . . G4 .', '. . C#4 . . . E4 . . . C#4 . . . E4 .', '. . C#4 . . . E4 . . . A4 . . . E4 .',
+    ),
+    bass: bars(
+      'D2 . D3 D2 . . D3 . D2 . . D2 D3 . C3 .', 'D2 . D3 D2 . . D3 . D2 . . D2 D3 . F2 .', 'A#1 . A#2 A#1 . . A#2 . A#1 . . A#1 A#2 . A2 .', 'C2 . C3 C2 . . C3 . C2 . . C2 C3 . D3 .',
+      'A#1 . A#2 A#1 . . A#2 . A#1 . . A#1 A#2 . A2 .', 'C2 . C3 C2 . . C3 . C2 . . C2 C3 . E2 .', 'A1 . A2 A1 . . A2 . A1 . . A1 A2 . G2 .', 'A1 . A2 A1 . . A2 . A1 . . C#2 E2 . G2 .',
+    ),
+    drum: bars(...Array(8).fill('K . H . S . H K . K H . S . H H')),
   },
   menu: {
     bpm: 116,

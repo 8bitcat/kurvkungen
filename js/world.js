@@ -4,7 +4,7 @@ import { TRACKS, THEMES } from './tracks.js?v=1';
 import { buildTrack, nearest } from './trackgeo.js?v=1';
 import { TS, isoX, isoY } from './iso.js?v=1';
 import { MAT, DECK } from './world-gen.js?v=1';
-import { treeSprite, TREE_RADIUS, railSprite, gantrySprite, standSprite, CONE, TIRES } from './props.js?v=1';
+import { treeSprite, TREE_RADIUS, railSprite, gantrySprite, standSprite, CONE, TIRES, STUMP } from './props.js?v=1';
 import { css } from './pix.js?v=1';
 
 let worker = null, genCounter = 0, current = null;
@@ -110,8 +110,26 @@ export class World {
   }
   _buildProps(objects) {
     const th = this.th, T = this.T;
-    for (const o of objects) this._addProp({ x: o.x, y: o.y, z: o.z, spr: treeSprite(o.k, o.v, th), r: TREE_RADIUS[o.k] || 0, kind: o.k });
+    this.lights = [];
+    for (const o of objects) {
+      this._addProp({ x: o.x, y: o.y, z: o.z, spr: treeSprite(o.k, o.v, th), r: TREE_RADIUS[o.k] || 0, kind: o.k });
+      if (o.k === 'lampa') this.lights.push({ x: o.x + 4, y: o.y + 4, z: o.z, x0: o.x, y0: o.y, h: 30, head: true, s: 0.9, col: 'rgba(120,220,255,0.12)' });
+    }
     const n = T.n;
+    // gatlyktor längs vägen (stad, månbas och alla nattbanor)
+    if (th.lamps || this.def.night) {
+      const step = th.lamps ? 60 : 110;
+      for (let i = 20, k = 0; i < n; i += step, k++) {
+        if (T.flags[i] & 1) continue;
+        const side = k & 1 ? 1 : -1, d = side * (T.HW[i] + 10);
+        const x = T.X[i] + T.NX[i] * d, y = T.Y[i] + T.NY[i] * d;
+        const g = this.groundAt(x, y, i);
+        if (Math.abs(g - T.Z[i]) > 3 || this.gm === MAT.WATER) continue;
+        this._addProp({ x, y, z: g, spr: treeSprite('lampa', 0, th), r: 1.5, kind: 'lampa' });
+        const lx = x - T.NX[i] * side * 7, ly = y - T.NY[i] * side * 7;
+        this.lights.push({ x: lx, y: ly, z: T.Z[i], x0: x, y0: y, h: 30, head: true, s: 1 });
+      }
+    }
     // koner på kurvornas insida, däckväggar på utsidan
     let last = -100;
     for (let i = 0; i < n; i++) {
@@ -163,6 +181,8 @@ export class World {
     }
   }
 
+  // Tunga fordon knäcker träd och buskar – kvar blir en stubbe
+  fell(p) { p.spr = STUMP; p.r = 0; p.kind = 'stubbe'; }
   // Ställ upp kullkörda koner igen
   resetDynamic() {
     for (const p of this.props) if (p.dyn) { p.x = p.x0; p.y = p.y0; p.down = false; p.spr = CONE; p.r = 2.2; p.vx = p.vy = p.vz = 0; p.zz = 0; p.depth = p.x + p.y; }

@@ -114,7 +114,18 @@ export function buildTrack(def) {
     const o = P[Math.floor(SEG[i]) % m][3];
     if (o && o.rail) { if (o.rail.includes('L')) flags[i] |= 2; if (o.rail.includes('R')) flags[i] |= 4; }
   }
-  return { n, L: L0, sp, X, Y, Z, TX, TY, NX, NY, A, K, KS, HW: HWs, SEG, flags };
+  const ZB = new Float32Array(Z); // höjd utan ramper (för terrängen runt omkring)
+  // hoppramper mitt på sträckan efter en kontrollpunkt med {jump: höjd}
+  for (let ci = 0; ci < m; ci++) {
+    const o = P[ci][3];
+    if (!o || !o.jump) continue;
+    let i0 = -1, i1 = -1;
+    for (let i = 0; i < n; i++) if (Math.floor(SEG[i]) === ci) { if (i0 < 0) i0 = i; i1 = i; }
+    if (i0 < 0) continue;
+    const mid = Math.round((i0 + i1) / 2), len = 20;
+    for (let k = 0; k < len; k++) { const i = (mid - len + k + n) % n; Z[i] += o.jump * (k + 1) / len; flags[i] |= 8; }
+  }
+  return { n, L: L0, sp, X, Y, Z, ZB, TX, TY, NX, NY, A, K, KS, HW: HWs, SEG, flags };
 }
 
 // Närmaste punkt på mittlinjen nära index `hint`. Skriver i `out` (återanvänds).
@@ -138,6 +149,7 @@ export function nearest(T, x, y, hint, range, out) {
   out.dist = Math.sqrt(best);
   out.s = (bi + bt) * T.sp;
   out.z = T.Z[bi] + (T.Z[j] - T.Z[bi]) * bt;
+  out.zb = T.ZB[bi] + (T.ZB[j] - T.ZB[bi]) * bt;
   out.hw = T.HW[bi];
   return out;
 }

@@ -98,8 +98,9 @@ export class Menu {
       if (info) {
         const lines = Array.isArray(info) ? info : [info];
         const iw = Math.max(...lines.map((l) => tw(l))) + 12;
-        panel(ctx, Math.round(vw / 2 - iw / 2), Y + H + 4, iw, lines.length * 8 + 6, 'rgba(20,16,40,0.85)', '#6a6488');
-        lines.forEach((l, k) => drawText(ctx, l, vw / 2, Y + H + 8 + k * 8, { color: 0xd8d4e8, align: 'c' }));
+        const cx = Math.max(iw / 2 + 2, Math.min(vw - iw / 2 - 2, X + W / 2));
+        panel(ctx, Math.round(cx - iw / 2), Y + H + 4, iw, lines.length * 8 + 6, 'rgba(20,16,40,0.85)', '#6a6488');
+        lines.forEach((l, k) => drawText(ctx, l, cx, Y + H + 8 + k * 8, { color: 0xd8d4e8, align: 'c' }));
       }
     }
     return { X, Y, W, H };
@@ -107,9 +108,11 @@ export class Menu {
 }
 
 export const CUPS = [
-  { id: 'brons', name: 'BRONSCUPEN', tracks: ['sjoviken', 'kanjonen', 'fjallet'], skill: [0.15, 0.45], laps: 3, prize: 1, models: ['pirat', 'komet', 'pirat'], upg: 0, unlock: null },
-  { id: 'silver', name: 'SILVERCUPEN', tracks: ['kanjonen_r', 'sjoviken_r', 'fjallet_r', 'sjoviken'], skill: [0.4, 0.7], laps: 3, prize: 1.7, models: ['komet', 'buffel', 'muskel'], upg: 1, unlock: 'brons' },
-  { id: 'guld', name: 'GULDCUPEN', tracks: ['fjallet', 'kanjonen', 'sjoviken_r', 'fjallet_r', 'kanjonen_r'], skill: [0.65, 0.95], laps: 4, prize: 2.6, models: ['muskel', 'raket', 'komet'], upg: 3, unlock: 'silver' },
+  { id: 'brons', name: 'BRONSCUPEN', tracks: ['sjoviken', 'hostgarden', 'kanjonen', 'palmon'], skill: [0.15, 0.45], laps: 3, prize: 1, cars: 5, models: ['bubblan', 'pirat', 'komet', 'traktorn', 'pirat'], upg: 0, unlock: null },
+  { id: 'silver', name: 'SILVERCUPEN', tracks: ['fjallet', 'hamnstaden', 'sjoviken_n', 'kanjonen_r', 'hostgarden_r'], skill: [0.35, 0.65], laps: 3, prize: 1.7, cars: 6, models: ['komet', 'buffel', 'polisen', 'muskel', 'skolbussen'], upg: 1, unlock: 'brons' },
+  { id: 'guld', name: 'GULDCUPEN', tracks: ['vulkanen', 'palmon_r', 'hamnstaden_n', 'fjallet_r', 'manbasen'], skill: [0.55, 0.85], laps: 3, prize: 2.6, cars: 6, models: ['muskel', 'monstret', 'raket', 'svavaren', 'polisen'], upg: 2, unlock: 'silver' },
+  { id: 'platina', name: 'PLATINACUPEN', tracks: ['manbasen_r', 'vulkanen_n', 'sjoviken_r_n', 'hamnstaden_r', 'kanjonen_n', 'fjallet_n'], skill: [0.7, 0.98], laps: 4, prize: 3.6, cars: 7, models: ['raket', 'formeln', 'pansarvagn', 'svavaren', 'monstret'], upg: 3, unlock: 'guld' },
+  { id: 'kaos', name: 'KAOSCUPEN', tracks: ['hostgarden_n', 'palmon_n', 'vulkanen_r', 'manbasen_n'], skill: [0.5, 0.9], laps: 3, prize: 3, cars: 8, models: ['pansarvagn', 'skolbussen', 'traktorn', 'monstret', 'buffel'], upg: 3, unlock: 'silver' },
 ];
 export const PRIZES = [1000, 700, 500, 350, 250, 150];
 export const POINTS = [10, 7, 5, 3, 2, 1];

@@ -3,24 +3,28 @@
 <style>body{margin:0;background:#5e9e30;color:#fff;font:12px monospace} canvas{image-rendering:pixelated;display:block}</style></head>
 <body><div id="info">…</div>
 <script type="module">
-import { MODELS, renderCar, renderShadow, palette, CAR_COLORS, ANGLES, SPR_W, SPR_H, SH_W, SH_H, SPR_OX, SPR_OY } from '../js/carsprites.js';
+import { MODELS, renderCar, renderShadow, palette, CAR_COLORS, ANGLES } from '../js/carsprites.js?v=1';
+import { CARS, CAR_ORDER } from '../js/cars.js?v=1';
 const P = new URLSearchParams(location.search);
-const z = +(P.get('z') || 3), step = +(P.get('step') || 4);
-const ids = Object.keys(MODELS);
-const cols = ANGLES / step;
+const z = +(P.get('z') || 3), step = +(P.get('step') || 8), pat = P.get('pat') || 'rander';
+const ids = P.get('only') ? P.get('only').split(',') : CAR_ORDER;
+const cols = ANGLES / step, CW = 70, CH = 52;
 const cv = document.createElement('canvas');
-cv.width = cols * SPR_W; cv.height = ids.length * SPR_H;
+cv.width = cols * CW; cv.height = ids.length * CH;
 cv.style.width = cv.width * z + 'px'; cv.style.height = cv.height * z + 'px';
 document.body.appendChild(cv);
 const ctx = cv.getContext('2d');
 ctx.fillStyle = '#b4a78e'; ctx.fillRect(0, 0, cv.width, cv.height);
 const t0 = performance.now();
 ids.forEach((id, r) => {
-  const pal = palette(CAR_COLORS[r % CAR_COLORS.length]);
+  const look = { pal: palette(CARS[id].color), pattern: pat, spoiler: P.has('spoiler'), ramm: +(P.get('ramm') || 0) };
+  const m = CARS[id].model;
   for (let k = 0; k < cols; k++) {
     const a = (k * step / ANGLES) * Math.PI * 2;
-    ctx.drawImage(renderShadow(id, a), k * SPR_W, r * SPR_H);
-    ctx.drawImage(renderCar(id, pal, a), k * SPR_W, r * SPR_H);
+    const sh = renderShadow(m, a), sp = renderCar(m, look, a);
+    const cx = k * CW + CW / 2, cy = r * CH + CH * 0.7;
+    ctx.drawImage(sh, cx - sh.ox, cy - sh.oy);
+    ctx.drawImage(sp, cx - sp.ox, cy - sp.oy);
   }
 });
 document.getElementById('info').textContent = `${ids.length * cols} sprites på ${(performance.now() - t0) | 0} ms`;

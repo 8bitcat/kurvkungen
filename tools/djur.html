@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>djur</title>
+<style>body{margin:0;background:#5e9e30;color:#fff;font:12px monospace} canvas{image-rendering:pixelated;display:block}</style></head>
+<body><div id="info">…</div>
+<script type="module">
+import { SPECIES, animalSprite } from '../js/animals.js?v=1';
+const z = 3, CW = 44, CH = 40;
+const ids = Object.keys(SPECIES);
+const cols = [['walk', 0, 0], ['walk', 1, 0], ['walk', 2, 0], ['walk', 1, 1.57], ['walk', 1, 3.14], ['walk', 1, 4.71], ['dead', 0, 0], ['dead', 0, 1.57], ['flat', 0, 0], ['flat', 0, 2.3]];
+const cv = document.createElement('canvas');
+cv.width = cols.length * CW; cv.height = ids.length * CH;
+cv.style.width = cv.width * z + 'px'; cv.style.height = cv.height * z + 'px';
+document.body.appendChild(cv);
+const ctx = cv.getContext('2d');
+ctx.fillStyle = '#b4a78e'; ctx.fillRect(0, 0, cv.width, cv.height);
+ids.forEach((id, r) => cols.forEach(([pose, fr, a], k) => {
+  const s = animalSprite(id, pose, fr, a, '');
+  ctx.drawImage(s.cv, k * CW + CW / 2 - s.ox, r * CH + CH * 0.75 - s.oy);
+}));
+document.getElementById('info').textContent = ids.join(' ');
+window.done = true;
+</script></body></html>

@@ -1,8 +1,10 @@
 // En bil: arkadfysik (styrning, motor, sidogrepp, luftfärd), markkontakt mot höjdkartan,
-// räcken, rekvisita och banföljning (progress, varv, senaste säkra punkt).
+// räcken och banföljning (progress, varv, senaste säkra punkt). Egenskaper per fordon:
+// svävare (lågt grepp, flyter över vatten/lava), pansarvagn (svänger på stället), terrängbilar.
 import { nearest, nearestGlobal, wrapA } from './trackgeo.js?v=1';
 import { MAT } from './world-gen.js?v=1';
-import { carStats, FRONT, REAR } from './cars.js?v=1';
+import { carStats, FRONT, REAR, CARS } from './cars.js?v=1';
+import { MODELS } from './carsprites.js?v=1';
 
 const GRAV = 560;
 const SURF = {
@@ -13,14 +15,25 @@ const SURF = {
   snow: { grip: 0.48, vmax: 0.66, drag: 0.8 },
   rock: { grip: 0.8, vmax: 0.72, drag: 0.6 },
   ice: { grip: 0.26, vmax: 0.92, drag: 0.1 },
+  hover: { grip: 1, vmax: 1, drag: 0.1 },
 };
 
 export class Car {
   constructor(opt) {
     Object.assign(this, {
-      name: 'Bil', carId: 'pirat', color: 0xd8282c, isPlayer: false, upg: {}, frontW: 'kulspruta', frontLvl: 0, rearW: 'minor', rearLvl: 0,
+      name: 'Bil', carId: 'pirat', color: 0xd8282c, isPlayer: false, upg: {}, acc: {}, frontW: 'kulspruta', frontLvl: 0, rearW: 'minor', rearLvl: 0,
     }, opt);
-    this.st = carStats(this.carId, this.upg);
+    const C = CARS[this.carId];
+    this.def = C;
+    this.model = C.model;
+    this.st = carStats(this.carId, this.upg, this.acc);
+    const M = MODELS[this.model];
+    this.len = M.len; this.wid = M.wid;
+    // kollisionscirklar längs bilen
+    this.cr = Math.min(6.5, M.wid * 0.5);
+    const span = Math.max(0, M.len / 2 - this.cr);
+    const n = M.len > 2.6 * M.wid ? 3 : 2;
+    this.co = Array.from({ length: n }, (_, k) => -span + (2 * span * k) / (n - 1));
     this.x = 0; this.y = 0; this.z = 0; this.vz = 0; this.vzg = 0; this.ang = 0;
     this.vx = 0; this.vy = 0; this.vf = 0; this.vr = 0; this.angVel = 0; this.steer = 0; this.air = false;
     this.inp = { steer: 0, gas: 0, brake: 0, fire: false, rear: false, nitro: false };
@@ -32,12 +45,14 @@ export class Car {
     this.ammoR = REAR[this.rearW].ammo + REAR[this.rearW].perLvl * this.rearLvl;
     this.maxF = this.ammoF; this.maxR = this.ammoR;
     this.coolF = 0; this.coolR = 0; this.smokeT = 0; this.oilT = 0; this.blindT = 0;
-    this.money = 0; this.kills = 0; this.lastHitBy = null; this.lastHitT = 0;
+    this.tackleT = 0; this.burnT = 0; this.empT = 0; this.punkT = 0; this.glueT = 0; this.burnBy = null;
+    this.money = 0; this.kills = 0; this.roadkill = 0; this.lastHitBy = null; this.lastHitT = 0;
     this.slip = 0; this.surf = 'road'; this.wrongT = 0; this.rubber = 1; this.lapTimes = []; this.lapStart = 0; this.bestLap = 0;
-    this.hitFlash = 0; this.bump = 0; this.scrape = 0; this.landed = 0;
+    this.hitFlash = 0; this.bump = 0; this.scrape = 0; this.landed = 0; this.firing = 0;
   }
   get speed() { return Math.hypot(this.vx, this.vy); }
   get kmh() { return Math.round(this.speed * 0.8); }
+  get mass() { return this.st.mass; }
 
   placeAt(T, i, lat, back = 0) {
     const x = T.X[i] - T.TX[i] * back + T.NX[i] * lat, y = T.Y[i] - T.TY[i] * back + T.NY[i] * lat;
@@ -57,8 +72,16 @@ export class Car {
     if (Math.abs(ds) < 60) this.progress += ds;
   }
 
+  // mark under bilen; svävaren flyter på vatten och lava
+  ground(W, x, y) {
+    const g = W.groundAt(x, y, this.si);
+    if (this.st.hover && W.gm === MAT.WATER) { W.gw = false; W.glava = false; return Math.max(g, 0); }
+    return g;
+  }
+
   step(dt, R) {
     const W = R.world, T = R.T, q = R.q, st = this.st, inp = this.inp;
+    const grav = GRAV * (W.th.grav || 1);
     this.track(R, q);
     if (this.inv > 0) this.inv -= dt;
     if (this.hitFlash > 0) this.hitFlash -= dt;
@@ -66,42 +89,52 @@ export class Car {
       const k = Math.exp(-2.5 * dt);
       this.vx *= k; this.vy *= k;
       this.x += this.vx * dt; this.y += this.vy * dt;
-      if (this.air) { this.vz -= GRAV * dt; this.z += this.vz * dt; const g = W.groundAt(this.x, this.y, this.si); if (this.z < g) { this.z = g; this.air = false; this.vz = 0; } }
+      if (this.air) { this.vz -= grav * dt; this.z += this.vz * dt; const g = W.groundAt(this.x, this.y, this.si); if (this.z < g) { this.z = g; this.air = false; this.vz = 0; } }
       if (this.sinkT > 0) { this.sinkT -= dt; this.z -= 6 * dt; if (this.sinkT <= 0) R.respawn(this); }
       else { this.wreckT -= dt; if (this.wreckT <= 0) R.respawn(this); }
       return;
     }
     // underlag
-    const g0 = W.groundAt(this.x, this.y, this.si);
+    this.ground(W, this.x, this.y);
     let surf = 'road';
-    if (W.gdeck || this.dist < this.hw + 0.5) surf = 'road';
+    if (st.hover) surf = 'hover';
+    else if (W.gdeck || this.dist < this.hw + 0.5) surf = 'road';
     else if (this.dist < this.hw + 6.5) surf = 'shoulder';
     else if (W.gm === MAT.WATER) surf = W.th.ice ? 'ice' : 'grass';
     else if (W.gm === MAT.SAND) surf = 'sand';
     else if (W.gm === MAT.ROCK) surf = 'rock';
-    else surf = W.th.ground === 'snow' ? 'snow' : W.th.ground === 'sand' ? 'sand' : 'grass';
+    else surf = W.th.ground === 'snow' ? 'snow' : W.th.ground === 'sand' ? 'sand' : W.th.ground === 'moon' ? 'sand' : 'grass';
     this.surf = surf;
     const S = SURF[surf];
-    const offK = surf === 'road' || surf === 'shoulder' ? 1 : st.offroad;
+    const offK = surf === 'road' || surf === 'shoulder' || surf === 'hover' ? 1 : st.offroad;
     let grip = S.grip * Math.min(1.25, offK), vmaxMul = Math.min(1, S.vmax * offK);
-    if (this.oilT > 0) { this.oilT -= dt; grip *= 0.14; }
+    if (this.oilT > 0) { this.oilT -= dt; grip *= st.tank ? 0.6 : 0.14; }
+    if (this.tackleT > 0) { this.tackleT -= dt; grip *= st.tank ? 0.7 : 0.22; }
+    if (this.empT > 0) { this.empT -= dt; vmaxMul *= 0.5; }
+    if (this.punkT > 0) { this.punkT -= dt; vmaxMul *= 0.7; grip *= 0.85; }
+    if (this.glueT > 0) { this.glueT -= dt; vmaxMul *= 0.38; }
+    if (this.burnT > 0) { this.burnT -= dt; R.damage(this, 5 * dt, this.burnBy, 'fire'); }
     if (this.blindT > 0) this.blindT -= dt;
     if (this.coolF > 0) this.coolF -= dt;
     if (this.coolR > 0) this.coolR -= dt;
     if (this.nitroT > 0) this.nitroT -= dt;
     if (this.smokeT > 0) this.smokeT -= dt;
+    if (this.firing > 0) this.firing -= dt;
+    if (st.repair && this.dmg > 0) this.dmg = Math.max(0, this.dmg - st.repair * dt);
 
     // styrning (mjukad för digital input)
-    this.steer += (inp.steer - this.steer) * Math.min(1, dt * (Math.abs(inp.steer) > Math.abs(this.steer) ? 10 : 16));
+    let steerIn = inp.steer;
+    if (this.empT > 0) steerIn += Math.sin(R.time * 23 + this.x) * 0.5;
+    this.steer += (steerIn - this.steer) * Math.min(1, dt * (Math.abs(steerIn) > Math.abs(this.steer) ? 10 : 16));
     const fx = Math.cos(this.ang), fy = Math.sin(this.ang);
     let vf = this.vx * fx + this.vy * fy;
     if (!this.air) {
       const av = Math.abs(vf);
-      const sc = Math.min(1, av / 55) * (1 - 0.3 * Math.min(1, av / st.vmax));
+      const sc = st.tank ? 1 - 0.35 * Math.min(1, av / st.vmax) : Math.min(1, av / 55) * (1 - 0.3 * Math.min(1, av / st.vmax));
       this.ang += this.steer * st.turn * sc * (vf < -5 ? -1 : 1) * dt;
     }
     this.ang += this.angVel * dt;
-    this.angVel *= Math.exp(-(this.air ? 1 : 3.5) * dt);
+    this.angVel *= Math.exp(-(this.air ? 1 : st.hover ? 1.8 : 3.5) * dt);
     const c = Math.cos(this.ang), s = Math.sin(this.ang);
     const rx = -s, ry = c;
     vf = this.vx * c + this.vy * s;
@@ -118,15 +151,15 @@ export class Car {
       }
       if (vf > vmax) vf -= (vf - vmax) * 1.6 * dt;
       if (inp.brake > 0) {
-        if (vf > 8) vf -= 560 * inp.brake * dt;
+        if (vf > 8) vf -= (st.hover ? 300 : 560) * inp.brake * dt;
         else vf = Math.max(vf - 220 * inp.brake * dt, -vmax * 0.38);
       }
-      if (!(inp.gas > 0) && !(inp.brake > 0)) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 55 * dt);
+      if (!(inp.gas > 0) && !(inp.brake > 0)) vf -= Math.sign(vf) * Math.min(Math.abs(vf), (st.hover ? 20 : 55) * dt);
       vf -= vf * S.drag * dt;
       // sidogrepp (Coulomb): glid när svängen kräver mer än greppet
       const ga = st.grip * grip * dt;
       this.slip = Math.abs(vr);
-      if (Math.abs(vr) <= ga) vr = 0; else { vr -= Math.sign(vr) * ga; vf -= Math.sign(vf) * Math.min(Math.abs(vf), Math.abs(vr) * 0.6 * dt); }
+      if (Math.abs(vr) <= ga) vr = 0; else { vr -= Math.sign(vr) * ga; vf -= Math.sign(vf) * Math.min(Math.abs(vf), Math.abs(vr) * (st.hover ? 0.15 : 0.6) * dt); }
     } else {
       this.slip = 0;
     }
@@ -138,7 +171,7 @@ export class Car {
     if (this.x > W.W - 30) this.x = W.W - 30; if (this.y > W.H - 30) this.y = W.H - 30;
 
     // höjd: följ marken, lyft från krön, fall från kanter
-    const g = W.groundAt(this.x, this.y, this.si);
+    const g = this.ground(W, this.x, this.y);
     const wet = W.gw;
     if (!this.air) {
       if (g < this.z - 3.5) { this.air = true; this.vz = Math.max(0, this.vzg); }
@@ -150,20 +183,21 @@ export class Car {
       }
     }
     if (this.air) {
-      this.vz -= GRAV * dt; this.z += this.vz * dt;
+      this.vz -= grav * dt; this.z += this.vz * dt;
       if (this.z <= g) {
         if (wet) { this.z = g; R.splash(this); return; }
         const hit = -this.vz;
         this.z = g; this.air = false; this.vz = 0; this.vzg = 0;
         this.landed = Math.min(1, hit / 200);
         if (hit > 170) R.damage(this, (hit - 170) * 0.14, null, 'land');
+        if (hit > 90) R.events('land', this, hit);
       }
     }
     // väggar i höjdkartan (branta slänter, klippor, skogsbryn)
     this.terrainCollide(W, ox, oy, R);
     // räcken (i vägkoordinater)
     const fl = T.flags[this.si];
-    const lim = this.hw + 4.6 - 4.6;
+    const lim = this.hw + 4.6 - this.wid * 0.5;
     if ((fl & 2) && this.d > lim) this.railHit(T, 1, this.d - lim, R);
     else if ((fl & 4) && this.d < -lim) this.railHit(T, -1, -lim - this.d, R);
     if (!this.air && this.dist < this.hw + 2 && !wet) this.lastGood = this.si;
@@ -188,21 +222,21 @@ export class Car {
 
   terrainCollide(W, ox, oy, R) {
     const c = Math.cos(this.ang), s = Math.sin(this.ang);
-    const probes = [[9.5, 4.5], [9.5, -4.5], [-9.5, 4.5], [-9.5, -4.5], [10.5, 0]];
+    const a0 = this.len / 2 - 0.5, b0 = this.wid / 2 - 0.5;
+    const probes = [[a0, b0], [a0, -b0], [-a0, b0], [-a0, -b0], [a0 + 1, 0]];
     for (let it = 0; it < 2; it++) {
       for (const [a, b] of probes) {
         const px = this.x + c * a - s * b, py = this.y + s * a + c * b;
-        const gp = W.groundAt(px, py, this.si);
+        const gp = this.ground(W, px, py);
         if (gp <= this.z + 3.2 || W.gdeck) continue;
-        let gx = W.groundAt(px + 1.5, py, this.si) - W.groundAt(px - 1.5, py, this.si);
-        let gy = W.groundAt(px, py + 1.5, this.si) - W.groundAt(px, py - 1.5, this.si);
+        let gx = this.ground(W, px + 1.5, py) - this.ground(W, px - 1.5, py);
+        let gy = this.ground(W, px, py + 1.5) - this.ground(W, px, py - 1.5);
         let l = Math.hypot(gx, gy);
         let nx, ny;
         if (l < 0.3) { nx = this.x - px; ny = this.y - py; l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l; }
         else { nx = -gx / l; ny = -gy / l; }
-        // knuffa ut
         let k = 0;
-        while (k < 8 && W.groundAt(px + nx * k * 0.7, py + ny * k * 0.7, this.si) > this.z + 3.2) k++;
+        while (k < 8 && this.ground(W, px + nx * k * 0.7, py + ny * k * 0.7) > this.z + 3.2) k++;
         this.x += nx * k * 0.7; this.y += ny * k * 0.7;
         const vn = this.vx * nx + this.vy * ny;
         if (vn < 0) {
@@ -215,7 +249,6 @@ export class Car {
     void ox; void oy;
   }
 
-  // banans nya höjd som gemensam punkt för AI/HUD
   wrongWay() { return this.wrongT > 1.2; }
   static wrapA = wrapA;
 }
