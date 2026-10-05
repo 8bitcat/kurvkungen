@@ -10,9 +10,9 @@ node tools/serve.mjs        # http://localhost:8803/
 ```
 
 Tangentbord: pilar/WASD kör, mellanslag skjuter, Z bakvapen, Shift nitro, T tuta, R tillbaka på banan, Esc paus, M musik.
+Handkontroll: RT gas, LT broms, X skjut, Y bakvapen, RB/klick i spak nitro. Mobil: liggande, autogas, knappar på skärmen.
 
 Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller gå med med rumskoden. Måste köras från en publicerad adress för att kompisar på andra datorer ska nå spelet.
-Handkontroll: RT gas, LT broms, X skjut, Y bakvapen, RB/klick i spak nitro. Mobil: liggande, autogas, knappar på skärmen.
 
 ## Hur det är byggt
 
