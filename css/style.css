@@ -1,0 +1,5 @@
+html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+canvas#game { display: block; image-rendering: pixelated; image-rendering: crisp-edges; position: fixed; inset: 0; }
+#rotate { display: none; position: fixed; inset: 0; background: #100c1e; color: #f2c21c; font: bold 22px monospace; text-align: center; padding-top: 40vh; z-index: 5; }
+#rotate small { color: #d8d4e8; font-size: 14px; }
+@media (orientation: portrait) and (pointer: coarse) { #rotate { display: block; } }

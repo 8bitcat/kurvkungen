@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>bilar</title>
+<style>body{margin:0;background:#5e9e30;color:#fff;font:12px monospace} canvas{image-rendering:pixelated;display:block}</style></head>
+<body><div id="info">…</div>
+<script type="module">
+import { MODELS, renderCar, renderShadow, palette, CAR_COLORS, ANGLES, SPR_W, SPR_H, SH_W, SH_H, SPR_OX, SPR_OY } from '../js/carsprites.js';
+const P = new URLSearchParams(location.search);
+const z = +(P.get('z') || 3), step = +(P.get('step') || 4);
+const ids = Object.keys(MODELS);
+const cols = ANGLES / step;
+const cv = document.createElement('canvas');
+cv.width = cols * SPR_W; cv.height = ids.length * SPR_H;
+cv.style.width = cv.width * z + 'px'; cv.style.height = cv.height * z + 'px';
+document.body.appendChild(cv);
+const ctx = cv.getContext('2d');
+ctx.fillStyle = '#b4a78e'; ctx.fillRect(0, 0, cv.width, cv.height);
+const t0 = performance.now();
+ids.forEach((id, r) => {
+  const pal = palette(CAR_COLORS[r % CAR_COLORS.length]);
+  for (let k = 0; k < cols; k++) {
+    const a = (k * step / ANGLES) * Math.PI * 2;
+    ctx.drawImage(renderShadow(id, a), k * SPR_W, r * SPR_H);
+    ctx.drawImage(renderCar(id, pal, a), k * SPR_W, r * SPR_H);
+  }
+});
+document.getElementById('info').textContent = `${ids.length * cols} sprites på ${(performance.now() - t0) | 0} ms`;
+window.done = true;
+</script></body></html>

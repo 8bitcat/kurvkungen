@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>terräng</title>
+<style>body{margin:0;background:#111;color:#ddd;font:12px monospace} canvas{image-rendering:pixelated;display:block}</style></head>
+<body><div id="info">…</div>
+<script type="module">
+import { generateWorld } from '../js/world-gen.js';
+import { paintTile } from '../js/world-paint.js';
+import { TRACKS } from '../js/tracks.js';
+import { TS } from '../js/iso.js';
+const P = new URLSearchParams(location.search);
+const id = P.get('t') || 'sjoviken';
+const t0 = performance.now();
+const Wd = generateWorld(TRACKS[id]);
+const t1 = performance.now();
+const ntx = Math.ceil(Wd.CW / TS), nty = Math.ceil(Wd.CH / TS);
+const mode = P.get('mode') || 'overview';
+const info = document.getElementById('info');
+if (mode === 'overview') {
+  const sc = +(P.get('sc') || 4);
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil(Wd.CW / sc); cv.height = Math.ceil(Wd.CH / sc);
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  const tmp = document.createElement('canvas'); tmp.width = TS; tmp.height = TS;
+  const tctx = tmp.getContext('2d');
+  let tt = 0;
+  for (let ty = 0; ty < nty; ty++) for (let tx = 0; tx < ntx; tx++) {
+    const a = performance.now();
+    const px = paintTile(Wd, tx, ty);
+    tt += performance.now() - a;
+    tctx.putImageData(new ImageData(px, TS, TS), 0, 0);
+    ctx.drawImage(tmp, tx * TS / sc, ty * TS / sc, TS / sc, TS / sc);
+  }
+  // banans mittlinje som kontroll
+  ctx.strokeStyle = 'rgba(255,0,255,.5)'; ctx.beginPath();
+  for (let i = 0; i < Wd.T.n; i += 10) { const x = Wd.T.X[i], y = Wd.T.Y[i], z = Wd.T.Z[i]; const X = (x - y + Wd.OX) / sc, Y = ((x + y) / 2 - z + Wd.OY) / sc; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+  if (P.has('line')) ctx.stroke();
+  info.textContent = `${id}: gen ${(t1 - t0) | 0} ms, ${ntx * nty} rutor målade på ${tt | 0} ms (${(tt / (ntx * nty)).toFixed(1)} ms/ruta), längd ${Wd.T.L | 0}, ZTOP ${Wd.ZTOP}`;
+} else {
+  // utsnitt i 1:1 runt en banpunkt, förstorat
+  const s = +(P.get('s') || 0), zoom = +(P.get('z') || 3), vw = +(P.get('vw') || 480), vh = +(P.get('vh') || 270);
+  const i = Math.round(s / Wd.T.sp) % Wd.T.n;
+  let [wx, wy, wz] = P.has('p') ? P.get('p').split(',').map(Number) : [Wd.T.X[i], Wd.T.Y[i], Wd.T.Z[i]];
+  wz = wz || 0;
+  const cxs = wx - wy + Wd.OX, cys = (wx + wy) / 2 - wz + Wd.OY;
+  const x0 = Math.round(cxs - vw / 2), y0 = Math.round(cys - vh / 2);
+  const cv = document.createElement('canvas'); cv.width = vw; cv.height = vh;
+  cv.style.width = vw * zoom + 'px'; cv.style.height = vh * zoom + 'px';
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  const tmp = document.createElement('canvas'); tmp.width = TS; tmp.height = TS;
+  const tctx = tmp.getContext('2d');
+  let tt = 0, n = 0;
+  for (let ty = Math.floor(y0 / TS); ty <= Math.floor((y0 + vh) / TS); ty++) for (let tx = Math.floor(x0 / TS); tx <= Math.floor((x0 + vw) / TS); tx++) {
+    if (tx < 0 || ty < 0 || tx >= ntx || ty >= nty) continue;
+    const a = performance.now(); const px = paintTile(Wd, tx, ty); tt += performance.now() - a; n++;
+    tctx.putImageData(new ImageData(px, TS, TS), 0, 0);
+    ctx.drawImage(tmp, tx * TS - x0, ty * TS - y0);
+  }
+  info.textContent = `${id} s=${s}: gen ${(t1 - t0) | 0} ms, ${n} rutor ${(tt / n).toFixed(1)} ms/ruta`;
+}
+window.done = true;
+</script></body></html>

@@ -1,0 +1,287 @@
+// Målar en terrängruta (TS×TS skärmpixlar) genom att skjuta en iso-stråle per pixel genom
+// höjdkartan. Träff på ovansida = mark/väg/vatten/lövverk, träff på sida = klippvägg, skogskant,
+// brokant. Ljus från vänster uppe, kvantiserat i toner med Bayer-dither, kastade skuggor.
+import { nearest } from './trackgeo.js?v=1';
+import { vnoise } from './noise.js?v=1';
+import { hash, bayer, mix, mul, shade, sm } from './pix.js?v=1';
+import { LX, LY, LZ, TS } from './iso.js?v=1';
+import { MAT, DECK } from './world-gen.js?v=1';
+
+const LH = Math.hypot(LX, LY);
+const SDX = LX / LH, SDY = LY / LH, SDZ = LZ / LH;
+const FLOWERS = [0xffffff, 0xf6e04a, 0xf28ac2, 0x9cc8ff];
+
+export function paintTile(Wd, tx, ty) {
+  const { W, H, Hm, mat, shadow, OX, OY, ZTOP, ZBOT, th, T, near, GW } = Wd;
+  const out = new Uint8ClampedArray(TS * TS * 4);
+  const kind = new Uint8Array(TS * (TS + 1));
+  const q = {};
+  const topAt = (x, y) => {
+    x |= 0; y |= 0;
+    if (x < 0) x = 0; else if (x >= W) x = W - 1;
+    if (y < 0) y = 0; else if (y >= H) y = H - 1;
+    const h = Hm[y * W + x];
+    return h < 0 ? 0 : h;
+  };
+  const snow = th.ground === 'snow', desert = th.ground === 'sand';
+  const L = T.L;
+
+  function ground(x, y, px, py, c0) {
+    const xi = x | 0, yi = y | 0;
+    const a = vnoise(x / 30, y / 30, 11) * 0.65 + vnoise(x / 9, y / 9, 12) * 0.35 + (bayer(px, py) - 0.5) * 0.06;
+    let c = a > 0.62 ? th.grass2 : a < 0.3 ? mix(c0 ?? th.grass, th.grass3, 0.55) : (c0 ?? th.grass);
+    const b = hash(xi, yi, 13);
+    // grästuvor: ljus pixel med mörk fot
+    if (!snow && !desert) {
+      const tu = hash(xi >> 1, yi >> 1, 19);
+      if (tu > 0.86) { const o = hash(xi >> 1, yi >> 1, 29); if (((px + (o * 3 | 0)) & 3) === 0) c = (py & 1) ? mul(c, 0.82) : mix(c, 0xfff2b0, 0.22); }
+    }
+    if (snow) {
+      if (b > 0.985) c = 0xffffff; else if (b < 0.05) c = mul(c, 0.95);
+      const dr = Math.sin(x * 0.12 - y * 0.05 + vnoise(x / 40, y / 40, 17) * 6);
+      if (dr > 0.85) c = mix(c, 0xffffff, 0.5);
+      return c;
+    }
+    if (b > 0.94) c = mix(c, 0xfff4c0, 0.16); else if (b < 0.07) c = mul(c, 0.84);
+    if (hash(xi >> 1, yi >> 1, 14) > 0.9) c = mul(c, 0.91);
+    if (desert) {
+      const r = Math.sin((x * 0.5 + y * 0.25) * 0.4 + vnoise(x / 25, y / 25, 16) * 5);
+      if (r > 0.82) c = th.grass2; else if (r < -0.9) c = th.grass3;
+      if (b > 0.993) c = 0x8a5a3a;
+      return c;
+    }
+    if (b > 0.9982) c = FLOWERS[(hash(xi, yi, 15) * 4) | 0];
+    const dp = vnoise(x / 70, y / 70, 18);
+    if (dp > 0.75 + (bayer(px, py) - 0.5) * 0.05) c = mix(c, th.dirt, 0.65);
+    return c;
+  }
+
+  function road(x, y, px, py, d, s, hw, i, onDeck) {
+    const ad = Math.abs(d), xi = x | 0, yi = y | 0;
+    if (ad <= hw) {
+      let c = onDeck ? mix(th.road, th.deck, 0.35) : th.road;
+      if (vnoise(x / 38, y / 38, 77) > 0.63) c = mul(c, 0.94);
+      const gr = hash(xi, yi, 5);
+      if (gr > 0.93) c = mix(c, 0xffffff, 0.09); else if (gr < 0.07) c = mul(c, 0.9);
+      if (Math.abs(ad - hw * 0.45) < 4.5) c = mul(c, 0.965);
+      if (onDeck && (s % 22) < 0.9) c = mul(c, 0.8);
+      if (ad < 1.05 && (s % 30) < 15) c = th.line;
+      else if (ad > hw - 3.4 && ad < hw - 1.9) c = th.edge;
+      const K = T.K[i];
+      if (Math.abs(K) > 0.0036 && ad > hw - 4.8) {
+        const inside = (K > 0) === (d < 0);
+        if (inside || Math.abs(K) > 0.0075) c = (Math.floor(s / 6) & 1) ? th.curbR : th.curbW;
+        if (ad > hw - 0.9) c = mul(c, 0.78);
+      }
+      if (s < 7) c = ((Math.floor(s / 3.5) + Math.floor((d + 200) / 3.5)) & 1) ? 0x1c1a20 : 0xf4f2ee;
+      else if (s > L - 260) { // startrutor
+        const k = Math.round((L - 26 - s) / 28);
+        if (k >= 0 && k < 8) {
+          const sk = L - 26 - k * 28, dk = (k & 1 ? -1 : 1) * hw * 0.44;
+          const ds = s - sk, dd = d - dk;
+          if ((Math.abs(ds) < 0.9 && Math.abs(dd) < 8) || (Math.abs(Math.abs(dd) - 7.4) < 0.7 && ds < 0 && ds > -9)) c = th.edge;
+        }
+      }
+      return c;
+    }
+    // vägren
+    let c = onDeck ? th.deck : th.shoulder;
+    const gr = hash(xi, yi, 7);
+    if (onDeck) {
+      if (ad > hw + 3.6) c = mul(c, 0.86);
+      else if (gr > 0.8) c = mul(c, 1.05);
+      return c;
+    }
+    if (gr > 0.82) c = mix(c, 0xffffff, 0.16); else if (gr < 0.25) c = mul(c, 0.83);
+    if (ad < hw + 1) c = mul(c, 0.8);
+    const t = (ad - hw - 3.2) / 2.8;
+    if (t > 0 && bayer(px, py) < t) return -1;
+    return c;
+  }
+
+  for (let py = -1; py < TS; py++) {
+    const sy = ty * TS + py - OY + 0.5;
+    for (let px = 0; px < TS; px++) {
+      const sx = tx * TS + px - OX + 0.5;
+      let uHi = 2 * (sy + ZTOP), uLo = 2 * (sy + ZBOT) - 2;
+      const uMin = Math.max(-sx, sx), uMax = Math.min(2 * W - sx, 2 * H + sx) - 0.001;
+      if (uHi > uMax) uHi = uMax;
+      if (uLo < uMin) uLo = uMin;
+      let res = 0, hu = 0, hci = 0, hh = 0, prevTop = -1e9, deckZ = 0;
+      for (let u = uHi; u >= uLo; u -= 1) {
+        const x = (u + sx) * 0.5, y = (u - sx) * 0.5, z = u * 0.5 - sy;
+        const ci = (y | 0) * W + (x | 0);
+        const m = mat[ci];
+        if (m & DECK) {
+          nearest(T, x, y, near[(y >> 1) * GW + (x >> 1)], 2, q);
+          if (q.dist < q.hw + 5 && (T.flags[q.i] & 1) && z <= q.z && z >= q.z - 4) {
+            res = q.z - z < 1 ? 3 : 4; hu = u; hci = ci; deckZ = q.z; break;
+          }
+        }
+        let h = Hm[ci];
+        if (h < 0) h = 0;
+        if (h >= z) { res = h - z < 1 ? 1 : 2; hu = u; hci = ci; hh = h; break; }
+        prevTop = h;
+      }
+      if (py >= 0) {
+        let c = th.outside;
+        if (res === 1 || res === 3) {
+          const zt = res === 3 ? deckZ : hh;
+          let u = 2 * (sy + zt); if (u > hu + 1) u = hu + 1;
+          const x = (u + sx) * 0.5, y = (u - sx) * 0.5;
+          const m = res === 3 ? -1 : mat[hci] & 15;
+          let k = 1, base = -1;
+          if (res === 3) {
+            nearest(T, x, y, near[(y >> 1) * GW + (x >> 1)], 2, q);
+            base = road(x, y, px, py, q.d, q.s, q.hw, q.i, true);
+          } else if (m === MAT.WATER) {
+            const dep = -Hm[hci];
+            const xi = x | 0, yi = y | 0;
+            if (th.ice) {
+              base = mix(th.water, th.waterDeep, sm(2, 8, dep));
+              const cr = Math.abs(vnoise(x / 26, y / 26, 61) - 0.5);
+              if (cr < 0.018) base = mul(base, 0.82); else if (cr < 0.04) base = mix(base, 0xffffff, 0.3);
+              if (Math.sin(x * 0.09 + y * 0.16 + vnoise(x / 50, y / 50, 62) * 4) > 0.93) base = th.water2;
+              if (dep < 0.8) base = th.foam;
+            } else {
+              base = mix(th.water, th.waterDeep, sm(1.6, 7.5, dep));
+              const w = Math.sin(x * 0.21 + y * 0.09 + vnoise(x / 40, y / 40, 21) * 7);
+              if (w > 0.9 && hash(xi, yi, 22) > 0.3) base = th.water2;
+              else if (w < -0.95 && hash(xi, yi, 24) > 0.5) base = mul(base, 0.9);
+              if (hash(xi, yi, 23) > 0.9975) base = th.foam;
+              if (dep < 0.75) base = bayer(px, py) < sm(0.75, 0.2, dep) ? th.foam : th.water2;
+            }
+          } else {
+            const hx1 = topAt(x - 1, y), hx2 = topAt(x + 1, y), hy1 = topAt(x, y - 1), hy2 = topAt(x, y + 1);
+            let gx = (hx2 - hx1) * 0.5, gy = (hy2 - hy1) * 0.5;
+            const gl = Math.hypot(gx, gy);
+            if (gl > 1.6) { gx *= 1.6 / gl; gy *= 1.6 / gl; }
+            const nl = Math.sqrt(gx * gx + gy * gy + 1);
+            k = ((-gx * LX - gy * LY + LZ) / nl) / LZ;
+            if (m === MAT.LEAF) {
+              const s2 = hash(x >> 1, y >> 1, 31);
+              base = th.leaf;
+              if (k > 1.04 && s2 > 0.5) base = th.leaf2;
+              else if (k < 0.86 && s2 > 0.55) base = th.leafDk;
+              if (hash(x | 0, y | 0, 32) > 0.86) base = mix(base, th.leaf2, 0.5);
+              if (snow && k > 0.92 && hash(x | 0, y | 0, 33) > 0.45) base = mix(0xf2f6ff, 0xc8d4ea, 1.06 - k);
+              k = 1 + (k - 1) * 1.5;
+            } else if (m === MAT.PILLAR) {
+              base = th.deck;
+            } else {
+              const gi = near[(y >> 1) * GW + (x >> 1)];
+              const ex = T.X[gi] - x, ey = T.Y[gi] - y;
+              if (ex * ex + ey * ey < (T.HW[gi] + 16) ** 2) {
+                nearest(T, x, y, gi, 2, q);
+                if (q.dist < q.hw + 6.5) base = road(x, y, px, py, q.d, q.s, q.hw, q.i, false);
+              }
+              if (base < 0) {
+                if (m === MAT.SAND) {
+                  base = hh < 1.3 ? th.sand2 : th.sand;
+                  const r = Math.sin((x * 0.4 + y * 0.3) * 0.5 + vnoise(x / 20, y / 20, 19) * 4);
+                  if (r > 0.86) base = mix(base, 0xffffff, 0.2);
+                  if (hash(x | 0, y | 0, 20) < 0.08) base = mul(base, 0.9);
+                } else if (m === MAT.ROCK || gl > 1.25) {
+                  base = (hash(x >> 1, y >> 1, 25) > 0.5) ? th.rock2 : th.rock;
+                  if (hash(x | 0, y | 0, 26) > 0.85) base = mul(base, 0.85);
+                  if (!desert && !snow && gl < 1.1) base = mix(base, th.grass3, 0.45);
+                } else base = ground(x, y, px, py);
+              }
+            }
+            // kastad skugga
+            let sh = shadow[hci];
+            if (!sh) {
+              let sx2 = x, sy2 = y, sz = zt + 0.6;
+              for (let s = 0; s < 80; s++) {
+                sx2 += SDX; sy2 += SDY; sz += SDZ;
+                if (sz > ZTOP || sx2 < 0 || sy2 < 0 || sx2 >= W || sy2 >= H) break;
+                const cj = (sy2 | 0) * W + (sx2 | 0);
+                const hj = Hm[cj];
+                if (hj > sz) { sh = 1; break; }
+                if ((mat[cj] & DECK) && hj < sz) {
+                  const gz = T.Z[near[(sy2 >> 1) * GW + (sx2 >> 1)]];
+                  if (sz < gz && sz > gz - 4) { sh = 1; break; }
+                }
+              }
+            }
+            if (sh) k *= 0.6;
+          }
+          if (m === MAT.WATER) {
+            // skuggor på vattnet
+            let sh = shadow[hci], sx2 = x, sy2 = y, sz = 0.6;
+            for (let s = 0; !sh && s < 80; s++) {
+              sx2 += SDX; sy2 += SDY; sz += SDZ;
+              if (sz > ZTOP || sx2 < 0 || sy2 < 0 || sx2 >= W || sy2 >= H) break;
+              const cj = (sy2 | 0) * W + (sx2 | 0);
+              if (Hm[cj] > sz) sh = 1;
+              else if (mat[cj] & DECK) { const gz = T.Z[near[(sy2 >> 1) * GW + (sx2 >> 1)]]; if (sz < gz && sz > gz - 4) sh = 1; }
+            }
+            if (sh) k = 0.64;
+          }
+          if (res === 3) {
+            // brodäck: skugga från räcken mm. ignoreras
+          }
+          c = shade(base, k, px + tx * TS, py + ty * TS, 0.6);
+          kind[(py + 1) * TS + px] = 1;
+        } else if (res === 2 || res === 4) {
+          const z = hu * 0.5 - sy;
+          const x = (hu + sx) * 0.5, y = (hu - sx) * 0.5;
+          const cx = tx * TS + px, cy = ty * TS + py;
+          if (res === 4) {
+            let base = th.deck;
+            const t = deckZ - z;
+            if (t < 1) base = mix(th.deck, 0xffffff, 0.25);
+            else if (t > 3.2) base = mul(th.deck, 0.55);
+            else if ((cx % 12) === 0) base = mul(th.deck, 0.8);
+            c = shade(base, 0.85, cx, cy);
+          } else {
+            const m = mat[hci] & 15;
+            const gx = topAt(x + 2, y) - topAt(x - 2, y), gy = topAt(x, y + 2) - topAt(x, y - 2);
+            let nx = -gx, ny = -gy;
+            const l = Math.hypot(nx, ny);
+            if (l < 0.01) { nx = 0.707; ny = 0.707; } else { nx /= l; ny /= l; }
+            let k = 0.8 + (nx * LX + ny * LY) * 0.5;
+            const depth = hh - z, above = z - prevTop;
+            let base;
+            if (m === MAT.LEAF) {
+              base = hash(cx >> 1, Math.floor(z), 51) > 0.62 ? (k > 0.8 ? th.leaf2 : th.leafDk) : th.leaf;
+              if (hash(cx, Math.floor(z * 2), 52) > 0.86) base = th.leafDk;
+              k *= 1 - Math.min(0.4, depth * 0.035);
+              if (above < 4.5) { base = hash(cx >> 1, 0, 53) > 0.6 ? th.trunk : th.leafDk; k *= 0.7; }
+              if (snow && depth < 2 && hash(cx, 1, 54) > 0.3) base = 0xe8eef8;
+            } else if (m === MAT.PILLAR) {
+              base = th.deck; if ((cx & 3) === 0) base = mul(base, 0.9);
+            } else {
+              const off = hash(Math.floor(cx / 7), 0, 60) * 5;
+              const br = Math.floor((z + off) / 5);
+              const bc = Math.floor((cx + hash(br, 1, 61) * 8) / 8);
+              const r = hash(bc, br, 62);
+              base = r > 0.66 ? th.rock2 : r > 0.33 ? th.rock : mul(th.rock, 0.9);
+              const fz = (z + off) - br * 5;
+              if (fz > 4.3) base = mix(base, 0xffffff, 0.18);
+              else if (fz < 0.6) base = mul(base, 0.7);
+              if (((cx + hash(br, 1, 61) * 8) % 8) < 1) base = mul(base, 0.75);
+              if (hash(cx, Math.floor(z * 2), 63) > 0.9) base = mul(base, 0.88);
+              const grassy = m === MAT.LAND && !desert;
+              if (grassy && depth < 1.4) base = snow ? 0xeef2fa : th.grass3;
+              else if (grassy && depth < 2.6 && hash(cx, 7, 64) > 0.45 + (depth - 1.4) * 0.4) base = snow ? 0xdde4f0 : mul(th.grass3, 0.85);
+              if (above < 1.6) k *= 0.78;
+            }
+            c = shade(base, k, cx, cy);
+          }
+          kind[(py + 1) * TS + px] = 2;
+        }
+        const o = (py * TS + px) * 4;
+        out[o] = (c >> 16) & 255; out[o + 1] = (c >> 8) & 255; out[o + 2] = c & 255; out[o + 3] = 255;
+      } else if (res === 1 || res === 3) kind[px] = 1; else if (res) kind[px] = 2;
+    }
+  }
+  // ljus kant på klippkrön (ovansida direkt ovanför en sida)
+  for (let py = 0; py < TS - 1; py++) for (let px = 0; px < TS; px++) {
+    if (kind[(py + 1) * TS + px] === 1 && kind[(py + 2) * TS + px] === 2) {
+      const o = (py * TS + px) * 4;
+      out[o] = Math.min(255, out[o] * 1.12 + 10); out[o + 1] = Math.min(255, out[o + 1] * 1.12 + 9); out[o + 2] = Math.min(255, out[o + 2] * 1.08 + 4);
+    }
+  }
+  return out;
+}
