@@ -1,10 +1,11 @@
 // En bil: arkadfysik (styrning, motor, sidogrepp, luftfärd), markkontakt mot höjdkartan,
 // räcken och banföljning (progress, varv, senaste säkra punkt). Egenskaper per fordon:
 // svävare (lågt grepp, flyter över vatten/lava), pansarvagn (svänger på stället), terrängbilar.
-import { nearest, nearestGlobal, wrapA } from './trackgeo.js?v=1';
+import { nearest, nearestGlobal, wrapA, pitOff, pitStraight } from './trackgeo.js?v=1';
 import { MAT } from './world-gen.js?v=1';
 import { carStats, FRONT, REAR, CARS } from './cars.js?v=1';
 import { MODELS } from './carsprites.js?v=1';
+import { f1Stats, tyreGrip, COMPOUNDS, teamById, KMH_F1 } from './f1.js?v=1';
 
 const GRAV = 560;
 const SURF = {
@@ -23,10 +24,25 @@ export class Car {
     Object.assign(this, {
       name: 'Bil', carId: 'pirat', color: 0xd8282c, isPlayer: false, upg: {}, acc: {}, frontW: 'kulspruta', frontLvl: 0, rearW: 'minor', rearLvl: 0,
     }, opt);
-    const C = CARS[this.carId];
-    this.def = C;
-    this.model = C.model;
-    this.st = carStats(this.carId, this.upg, this.acc);
+    if (this.f1) {
+      // Grand Prix-bil: stallets färger och styrka, däck, depå
+      const team = teamById(this.team);
+      this.def = { name: team.name, model: 'f1' };
+      this.model = 'f1'; this.carId = 'pirat';
+      this.color = team.c1;
+      this.pal = { paint: team.c1, paint2: team.c2, stripe: team.c3 };
+      this.st = f1Stats(team.perf);
+      this.tyre = { c: this.compound || 'medium', wear: 0 };
+      this.used = new Set([this.tyre.c]);
+      this.nextTyre = this.tyre.c === 'hard' ? 'medium' : 'hard';
+      this.stops = 0; this.wing = 0; this.wingLost = false; this.punct = 0; this.tow = 0; this.drs = false; this.drsOk = false; this.pitPhase = null; this.pitT = 0; this.boxing = false; this.vcap = 0;
+      this.frontW = 'kulspruta'; this.rearW = 'minor';
+    } else {
+      const C = CARS[this.carId];
+      this.def = C;
+      this.model = C.model;
+      this.st = carStats(this.carId, this.upg, this.acc);
+    }
     const M = MODELS[this.model];
     this.len = M.len; this.wid = M.wid;
     // kollisionscirklar längs bilen
@@ -41,8 +57,8 @@ export class Car {
     this.finished = false; this.finishTime = 0; this.place = 0;
     this.dmg = 0; this.wreckT = 0; this.inv = 0; this.sinkT = 0;
     this.nitro = this.st.nitro; this.nitroT = 0;
-    this.ammoF = FRONT[this.frontW].ammo + FRONT[this.frontW].perLvl * this.frontLvl;
-    this.ammoR = REAR[this.rearW].ammo + REAR[this.rearW].perLvl * this.rearLvl;
+    this.ammoF = this.f1 ? 0 : FRONT[this.frontW].ammo + FRONT[this.frontW].perLvl * this.frontLvl;
+    this.ammoR = this.f1 ? 0 : REAR[this.rearW].ammo + REAR[this.rearW].perLvl * this.rearLvl;
     this.maxF = this.ammoF; this.maxR = this.ammoR;
     this.coolF = 0; this.coolR = 0; this.smokeT = 0; this.oilT = 0; this.blindT = 0;
     this.tackleT = 0; this.burnT = 0; this.empT = 0; this.punkT = 0; this.glueT = 0; this.burnBy = null;
@@ -51,7 +67,7 @@ export class Car {
     this.hitFlash = 0; this.bump = 0; this.scrape = 0; this.landed = 0; this.firing = 0;
   }
   get speed() { return Math.hypot(this.vx, this.vy); }
-  get kmh() { return Math.round(this.speed * 0.8); }
+  get kmh() { return Math.round(this.speed * (this.f1 ? KMH_F1 : 0.8)); }
   get mass() { return this.st.mass; }
 
   placeAt(T, i, lat, back = 0) {
@@ -104,10 +120,33 @@ export class Car {
     else if (W.gm === MAT.SAND) surf = 'sand';
     else if (W.gm === MAT.ROCK) surf = 'rock';
     else surf = W.th.ground === 'snow' ? 'snow' : W.th.ground === 'sand' ? 'sand' : W.th.ground === 'moon' ? 'sand' : 'grass';
+    // depåfilen och betongen vid depåmuren räknas som väg
+    this.inPit = false;
+    if (T.pit && surf !== 'road') {
+      const po = pitOff(T, this.s);
+      if (po !== null) {
+        const sd = this.d * T.pit.side, pc = po * T.pit.side;
+        if (Math.abs(sd - pc) < T.pit.hw + 2) { surf = 'road'; this.inPit = true; }
+        else if (sd > this.hw && sd < pc) surf = 'road';
+      }
+    } else if (T.pit && this.d * T.pit.side > this.hw - 6) { const po = pitOff(T, this.s); if (po !== null && Math.abs(this.d - po) < T.pit.hw) this.inPit = true; }
     this.surf = surf;
     const S = SURF[surf];
     const offK = surf === 'road' || surf === 'shoulder' || surf === 'hover' ? 1 : st.offroad;
     let grip = S.grip * Math.min(1.25, offK), vmaxMul = Math.min(1, S.vmax * offK);
+    if (this.f1) {
+      const v = Math.abs(this.vx * Math.cos(this.ang) + this.vy * Math.sin(this.ang));
+      // däcken, framvingen och smutsig luft styr hur skarpt bilen kan svänga (understyrning) och greppet
+      this.turnK = tyreGrip(this.tyre.c, this.tyre.wear) * (1 - this.wing * 0.0022) * (1 - 0.05 * (this.dirty || 0)) * (this.punct ? 0.74 : 1);
+      if (this.punct) vmaxMul *= 0.6;
+      // utslitna däck kan smälla
+      else if (this.tyre.wear > 105 && Math.random() < dt * 0.25) { this.punct = Math.random() < 0.5 ? -1 : 1; R.events('puncture', this, 'blow'); }
+      grip *= this.turnK * (1 + st.df * (v / st.vmax) ** 2);
+      vmaxMul *= (1 + 0.07 * this.tow) * (this.drs ? 1.075 : 1);
+      // slitage: sträcka + sladd + utanför banan, skalat mot loppets längd
+      const off = surf !== 'road' && surf !== 'shoulder' ? 1 : 0;
+      this.tyre.wear += (v * dt * 0.0026 + Math.max(0, this.slip - 25) * dt * 0.05 + off * v * dt * 0.002) * COMPOUNDS[this.tyre.c].wear * (R.wearScale || 1);
+    }
     if (this.oilT > 0) { this.oilT -= dt; grip *= st.tank ? 0.6 : 0.14; }
     if (this.tackleT > 0) { this.tackleT -= dt; grip *= st.tank ? 0.7 : 0.22; }
     if (this.empT > 0) { this.empT -= dt; vmaxMul *= 0.5; }
@@ -125,13 +164,14 @@ export class Car {
     // styrning (mjukad för digital input)
     let steerIn = inp.steer;
     if (this.empT > 0) steerIn += Math.sin(R.time * 23 + this.x) * 0.5;
+    if (this.punct && !this.pitPhase) steerIn += this.punct * 0.14 * Math.min(1, Math.abs(this.vf || 0) / 80); // punkan drar åt sidan
     this.steer += (steerIn - this.steer) * Math.min(1, dt * (Math.abs(steerIn) > Math.abs(this.steer) ? 10 : 16));
     const fx = Math.cos(this.ang), fy = Math.sin(this.ang);
     let vf = this.vx * fx + this.vy * fy;
     if (!this.air) {
       const av = Math.abs(vf);
-      const sc = st.tank ? 1 - 0.35 * Math.min(1, av / st.vmax) : Math.min(1, av / 55) * (1 - 0.3 * Math.min(1, av / st.vmax));
-      this.ang += this.steer * st.turn * sc * (vf < -5 ? -1 : 1) * dt;
+      const sc = st.tank ? 1 - 0.35 * Math.min(1, av / st.vmax) : Math.min(1, av / 55) * (1 - (st.tf || 0.3) * Math.min(1, av / st.vmax));
+      this.ang += this.steer * st.turn * (this.turnK || 1) * sc * (vf < -5 ? -1 : 1) * dt;
     }
     this.ang += this.angVel * dt;
     this.angVel *= Math.exp(-(this.air ? 1 : st.hover ? 1.8 : 3.5) * dt);
@@ -141,7 +181,8 @@ export class Car {
     let vr = this.vx * rx + this.vy * ry;
     if (!this.air) {
       const nitro = this.nitroT > 0;
-      const vmax = st.vmax * vmaxMul * (1 - this.dmg * 0.0022) * (nitro ? 1.3 : 1) * this.rubber;
+      let vmax = st.vmax * vmaxMul * (1 - this.dmg * 0.0022) * (nitro ? 1.3 : 1) * this.rubber;
+      if (this.vcap) vmax = Math.min(vmax, this.vcap);
       if (inp.gas > 0) {
         if (vf < vmax) {
           const t = Math.max(0, vf) / vmax;
@@ -151,7 +192,7 @@ export class Car {
       }
       if (vf > vmax) vf -= (vf - vmax) * 1.6 * dt;
       if (inp.brake > 0) {
-        if (vf > 8) vf -= (st.hover ? 300 : 560) * inp.brake * dt;
+        if (vf > 8) vf -= (st.hover ? 300 : st.brk || 560) * inp.brake * dt;
         else vf = Math.max(vf - 220 * inp.brake * dt, -vmax * 0.38);
       }
       if (!(inp.gas > 0) && !(inp.brake > 0)) vf -= Math.sign(vf) * Math.min(Math.abs(vf), (st.hover ? 20 : 55) * dt);
@@ -200,6 +241,17 @@ export class Car {
     const lim = this.hw + 4.6 - this.wid * 0.5;
     if ((fl & 2) && this.d > lim) this.railHit(T, 1, this.d - lim, R);
     else if ((fl & 4) && this.d < -lim) this.railHit(T, -1, -lim - this.d, R);
+    // depåmuren mellan banan och depåfilen
+    if (T.pit && pitStraight(T, this.s)) {
+      const P = T.pit, sd = this.d * P.side, gap = sd - P.wall, need = this.wid / 2 + 1.2;
+      if (Math.abs(gap) < need) {
+        const dir = (gap < 0 ? -1 : 1) * P.side, pen = need - Math.abs(gap);
+        const nx = T.NX[this.si] * dir, ny = T.NY[this.si] * dir;
+        this.x += nx * pen; this.y += ny * pen;
+        const vn = this.vx * nx + this.vy * ny;
+        if (vn < 0) { this.vx -= nx * vn * 1.3; this.vy -= ny * vn * 1.3; if (-vn > 60) { R.damage(this, (-vn - 60) * 0.05, null, 'wall'); R.sparks(this.x - nx * 5, this.y - ny * 5, this.z + 3, 4); } }
+      }
+    }
     if (!this.air && this.dist < this.hw + 2 && !wet) this.lastGood = this.si;
 
     // fel håll

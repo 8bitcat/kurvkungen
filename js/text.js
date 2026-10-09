@@ -15,7 +15,7 @@ export const GRAD = {
 export function textCanvas(str, opt = {}) {
   const F = opt.big ? BIG : SMALL, sc = opt.scale || 1;
   const grad = opt.grad || (opt.color != null ? null : GRAD.white);
-  const ol = opt.outline ?? 0x1a1426, sh = opt.shadow ?? true;
+  const ol = 'outline' in opt ? opt.outline : 0x1a1426, sh = opt.shadow ?? true;
   const key = [str, opt.big ? 1 : 0, sc, grad ? grad[2] : opt.color, ol, sh].join('|');
   let c = cache.get(key);
   if (c) return c;

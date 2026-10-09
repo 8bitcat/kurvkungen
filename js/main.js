@@ -10,7 +10,9 @@ import { input, pollActions, driveInput, touchButtons, setPointerMap, heldTouche
 import { initAudio, sfx, startMusic, stopMusic, makeEngines, stopEngines, engineSet, setMusic, setSfx, audio } from './audio.js?v=1';
 import { save, persist, resetSave } from './save.js?v=1';
 import { CARS, CAR_ORDER, UPGRADES, UPG_ORDER, FRONT, REAR, DRIVERS, ACCESSORIES, ACC_ORDER, PATTERNS, PATTERN_ORDER, FRONT_ORDER, REAR_ORDER, carStats } from './cars.js?v=1';
-import { TRACKS, TRACK_ORDER, BASE_TRACKS, trackName, THEMES } from './tracks.js?v=1';
+import { TRACKS, TRACK_ORDER, BASE_TRACKS, trackName, THEMES, GP_ORDER } from './tracks.js?v=1';
+import { TEAMS, COMPOUNDS, COMPOUND_ORDER, POINTS as F1_POINTS, LAP_OPTIONS, teamById, f1Stats } from './f1.js?v=1';
+import { lapEstimate } from './gp.js?v=1';
 import { VERSION } from './version.js?v=1';
 import { css } from './pix.js?v=1';
 import { Host, Client, snapshot } from './net.js?v=1';
@@ -29,7 +31,9 @@ function resize() {
   const w = Math.round(innerWidth * DPR), h = Math.round(innerHeight * DPR);
   canvas.width = w; canvas.height = h;
   canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
-  S = Math.max(1, Math.floor(Math.min(w / 400, h / 225)));
+  // Grand Prix-loppen visar mer av banan (större banor, snabbare bilar)
+  const [dw, dh] = G.wide ? (input.touch ? [460, 259] : [560, 315]) : [400, 225];
+  S = Math.max(1, Math.floor(Math.min(w / dw, h / dh)));
   VW = Math.floor(w / S); VH = Math.floor(h / S);
   OXs = Math.floor((w - VW * S) / 2); OYs = Math.floor((h - VH * S) / 2);
   view.width = VW; view.height = VH;
@@ -49,7 +53,8 @@ function layoutTouch() {
     touchButtons.push({ id: 'left', x: 30, y: VH - 34, r: 22, label: '<' }, { id: 'right', x: 82, y: VH - 34, r: 22, label: '>' });
     touchButtons.push({ id: 'brake', x: VW - 32, y: VH - 32, r: 20, label: 'BROMS' });
     if (!input.autoGas) touchButtons.push({ id: 'gas', x: VW - 80, y: VH - 32, r: 20, label: 'GAS' });
-    touchButtons.push({ id: 'fire', x: VW - 30, y: VH - 82, r: 17, label: 'SKJUT' }, { id: 'rear', x: VW - 72, y: VH - 78, r: 14, label: 'BAK' }, { id: 'nitro', x: VW - (input.autoGas ? 76 : 122), y: VH - 30, r: 14, label: 'NOS' });
+    if (G.race && G.race.f1) touchButtons.push({ id: 'fire', x: VW - 30, y: VH - 82, r: 17, label: 'DRS' }, { id: 'box', x: VW - 72, y: VH - 78, r: 14, label: 'BOX' }, { id: 'tyre', x: VW - (input.autoGas ? 76 : 122), y: VH - 30, r: 14, label: 'DÄCK' });
+    else touchButtons.push({ id: 'fire', x: VW - 30, y: VH - 82, r: 17, label: 'SKJUT' }, { id: 'rear', x: VW - 72, y: VH - 78, r: 14, label: 'BAK' }, { id: 'nitro', x: VW - (input.autoGas ? 76 : 122), y: VH - 30, r: 14, label: 'NOS' });
     touchButtons.push({ id: 'pause', x: VW - 16, y: 80, r: 10, label: 'II' });
   }
 }
@@ -80,7 +85,20 @@ function onEvent(type, a, b, c) {
     case 'count': if (!att) sfx('count'); break;
     case 'go': if (!att) sfx('go'); break;
     case 'lap': if (a === P) { if (b === R.laps - 1) { hud.say('SISTA VARVET!', 2, GRAD.fire); sfx('final'); } else { hud.say('VARV ' + (b + 1), 1.4, GRAD.white); sfx('lap'); } } break;
-    case 'finish': if (a === P) { hud.say('MÅL! ' + ordinal(b), 4, b === 1 ? GRAD.gold : GRAD.white); sfx('finish'); } break;
+    case 'finish': if (a === P) { if (R.f1 && R.mode === 'time') hud.say('KVALET ÄR KLART', 3, GRAD.gold); else hud.say('MÅL! ' + ordinal(b), 4, b === 1 ? GRAD.gold : GRAD.white); sfx('finish'); } break;
+    case 'light': if (!att) sfx('light'); break;
+    case 'pitin': if (a === P) hud.say('DEPÅN – FARTBEGRÄNSAREN PÅ', 1.6, GRAD.gold, false); break;
+    case 'pitstop': sfx('airgun', v(a) * (a === P ? 1 : 0.6)); break;
+    case 'pitdone': if (a === P) { hud.say(`NYA ${COMPOUNDS[a.tyre.c].name} DÄCK – KÖR!`, 1.8, GRAD.green, false); sfx('go'); } break;
+    case 'penalty': if (a === P) hud.say('+20 S: KÖRDE BARA EN DÄCKBLANDNING', 3.5, GRAD.red, false); break;
+    case 'puncture':
+      sfx('spike', v(a));
+      if (a === P) { hud.say(b === 'blow' ? 'DÄCKET SMÄLLDE!' : 'PUNKA!', 2, GRAD.red); G.cam.shake = 0.2; if (!P.ai && !P.pitPhase) P.boxing = true; }
+      break;
+    case 'wingoff':
+      sfx('crash', v(a));
+      if (a === P) { hud.say('FRAMVINGEN BORTA!', 2, GRAD.red); G.cam.shake = 0.25; if (!P.ai && !P.pitPhase) P.boxing = true; }
+      break;
     case 'wreck':
       sfx('boom', v(a));
       if (a === P) { hud.say('UTSLAGEN!', 2, GRAD.red); G.cam.shake = 0.5; }
@@ -120,13 +138,19 @@ function onEvent(type, a, b, c) {
 async function boot() {
   resize();
   G.state = 'boot'; G.msg = 'BYGGER VÄRLDEN';
-  const startTrack = Q.get('race') || 'sjoviken';
-  const w = new World(Q.get('race') ? startTrack : 'sjoviken');
+  const startTrack = Q.get('race') || Q.get('gp') || 'sjoviken';
+  const w = new World(startTrack);
   await w.load();
   G.world = w;
   if (Q.get('race')) {
     input.autoGas = false;
     await startRace({ track: startTrack, laps: +(Q.get('laps') || 3), mode: Q.get('mode') || 'race', opponents: makeOpponents(CUPS[0], 5), prizeMul: 0.5, autopilot: Q.has('auto') });
+    return;
+  }
+  if (Q.get('gp')) {
+    input.autoGas = false;
+    const g = gpSave();
+    await startGP({ track: Q.get('gp').replace(/_n$/, ''), night: /_n$/.test(Q.get('gp')), laps: +(Q.get('laps') || 5), quali: Q.get('quali') === '1', start: Q.get('tyre') || 'medium', team: Q.get('team') || g.team, seat: +(Q.get('seat') || 0), level: +(Q.get('level') ?? 1), autopilot: Q.has('auto') });
     return;
   }
   startAttract();
@@ -135,8 +159,18 @@ async function boot() {
 }
 
 function startAttract() {
+  if (G.wide) { G.wide = false; resize(); }
   G.world.resetDynamic();
   const cars = [];
+  if (G.world.def.f1) {
+    const ts = [...TEAMS].sort(() => Math.random() - 0.5);
+    for (let k = 0; k < 10; k++) { const tm = ts[k % ts.length], d = tm.drivers[k >= ts.length ? 1 : 0]; cars.push({ f1: true, team: tm.id, seat: k >= ts.length ? 1 : 0, name: d[0], code: d[1], skill: d[2], compound: COMPOUND_ORDER[k % 3] }); }
+    G.race = new Race(G.world, { mode: 'attract', cars, countdown: 0.01, events: onEvent, night: G.world.def.night, f1: true });
+    G.hud = new Hud(G.race);
+    G.follow = G.race.cars[0]; G.followT = 0;
+    const c = G.follow; G.cam.x = c.x; G.cam.y = c.y; G.cam.z = c.z;
+    return;
+  }
   const models = [...CAR_ORDER].sort(() => Math.random() - 0.5).slice(0, 7);
   for (let k = 0; k < 7; k++) cars.push({ name: DRIVERS[k].name, carId: models[k], color: k === 0 ? 0xd8282c : DRIVERS[k].color, skill: 0.5 + k * 0.07, pattern: PATTERN_ORDER[(Math.random() * PATTERN_ORDER.length) | 0], frontW: FRONT_ORDER[k % FRONT_ORDER.length], rearW: REAR_ORDER[k % REAR_ORDER.length] });
   G.race = new Race(G.world, { mode: 'attract', cars, countdown: 0.01, events: onEvent, night: G.world.def.night });
@@ -183,6 +217,7 @@ function playerCarCfg() {
 
 async function startRace(cfg) {
   G.cfg = cfg;
+  if (!!G.wide !== !!cfg.f1) { G.wide = !!cfg.f1; resize(); }
   G.state = 'loading'; G.loadP = 0; G.msg = trackName(cfg.track);
   stopEngines();
   let w = G.world;
@@ -191,7 +226,8 @@ async function startRace(cfg) {
   G.world = w;
   const cars = [];
   const pc = playerCarCfg();
-  if (cfg.carsList) cars.push(...cfg.carsList.map((c, k) => (k === cfg.myIndex && NET.role !== 'guest' ? { ...pc, ...c, isPlayer: true, human: false } : { ...c })));
+  if (cfg.gpGrid) cars.push(...cfg.gpGrid(w.T).map(({ q, ...c }) => c));
+  else if (cfg.carsList) cars.push(...cfg.carsList.map((c, k) => (k === cfg.myIndex && NET.role !== 'guest' ? { ...pc, ...c, isPlayer: true, human: false } : { ...c })));
   else if (cfg.mode === 'time') cars.push(pc);
   else {
     // spelaren startar längst bak i mästerskapets första lopp, annars efter placering
@@ -200,8 +236,9 @@ async function startRace(cfg) {
     for (const name of order) cars.push(name === 'Du' ? pc : opp.find((o) => o.name === name));
   }
   G.stats = {};
-  const R = new Race(w, { mode: cfg.mode, laps: cfg.laps, cars, events: onEvent, autopilot: cfg.autopilot, night: TRACKS[cfg.track].night });
+  const R = new Race(w, { mode: cfg.mode, laps: cfg.laps, cars, events: onEvent, autopilot: cfg.autopilot, night: TRACKS[cfg.track].night, f1: cfg.f1, wearLaps: cfg.wearLaps });
   G.race = R; G.hud = new Hud(R);
+  if (cfg.quali) R.poleRef = Math.min(...gpField(cfg.gp).filter((c) => !c.isPlayer).map((c) => lapEstimate(w.T, f1Stats(teamById(c.team).perf), c.skill)));
   if (NET.role === 'guest') { NET.mirror = new Mirror(R, cfg.myIndex); }
   const pl = R.player;
   G.cam.x = pl.x; G.cam.y = pl.y; G.cam.z = pl.z;
@@ -236,6 +273,7 @@ function mainMenu() {
   return new Menu('HUVUDMENY', [
     { label: 'MÄSTERSKAP', ok: () => { sfx('ok'); G.menu = cupMenu(); G.state = 'sub'; }, info: () => 'FEM CUPER. VINN PENGAR, KÖP FORDON OCH VAPEN.' },
     { label: 'SNABBT LOPP', ok: () => { sfx('ok'); G.menu = quickMenu(); G.state = 'sub'; }, info: () => 'VÄLJ BANA OCH MOTSTÅNDARE.' },
+    { label: 'GRAND PRIX', ok: () => { sfx('ok'); G.menu = gpMenu(); G.state = 'gp'; }, info: () => ['FORMEL 1 – INGA VAPEN, BARA RACING.', 'DÄCKSLITAGE, DEPÅSTOPP, SLIPSTREAM OCH DRS.'] },
     { label: 'TIDSJAKT', ok: () => { sfx('ok'); G.menu = timeMenu(); G.state = 'sub'; }, info: () => 'ENSAM PÅ BANAN. SLÅ DITT BÄSTA VARV.' },
     { label: 'SPELA ONLINE', ok: () => { sfx('ok'); G.menu = onlineMenu(); G.state = 'sub'; }, info: () => 'KÖR MOT KOMPISAR MED EN RUMSKOD.' },
     { label: 'GARAGET', ok: () => { sfx('ok'); openGarage(() => go('menu')); }, info: () => `${save.money} KR I KASSAN` },
@@ -417,6 +455,7 @@ function showResults() {
   const R = G.race, cfg = G.cfg, P = R.player;
   stopEngines();
   NET.inRace = false;
+  if (cfg.f1) { gpResults(); return; }
   if (NET.role === 'host') NET.host.broadcast({ t: 'res', order: R.finishOrder.map((c) => [R.cars.indexOf(c), c.finishTime, c.bestLap || 0, c.kills, c.roadkill, c.money]) });
   const res = { rows: [], money: 0, cfg };
   if (cfg.mode === 'time') {
@@ -460,6 +499,9 @@ function showResults() {
 function drawResults(t) {
   const res = G.results;
   dimBg(0.6);
+  if (res.gpQuali) return drawGPQuali(t);
+  if (res.gpRace) return drawGPResults(t);
+  if (res.gpStand) return drawGPStandings(t);
   const W = Math.min(VW - 16, 360), X = Math.round(VW / 2 - W / 2);
   if (res.standings) return drawStandings(t, X, W);
   if (res.cfg.mode === 'time') {
@@ -516,6 +558,9 @@ function drawStandings(t, X, W) {
 function resultsNext() {
   const res = G.results;
   sfx('ok');
+  if (res.gpQuali) { startGPRace(res.cfg.gp, res.grid); return; }
+  if (res.gpRace) { if (res.cfg.gp.season) { G.results = { gpStand: true, final: res.seasonEnd, back: gpBack }; G.state = 'standings'; } else gpBack(); return; }
+  if (res.gpStand) { res.back(); return; }
   if (res.standings) { if (res.back) res.back(); else afterRace(); return; }
   if (res.cfg.champ) { G.results = { standings: true, champEnd: res.champEnd, back: res.champEnd ? null : () => { startAttract(); preRace(); } }; if (!res.champEnd && !save.champ) { afterRace(); return; } return; }
   afterRace();
@@ -527,6 +572,308 @@ function afterRace() {
   startAttract();
   G.menu = mainMenu(); G.state = 'menu';
   startMusic('menu');
+}
+
+// ---------- Grand Prix ----------
+const GP_LEVELS = ['LÄTT', 'MEDEL', 'SVÅR'], GP_SKILL = [0.8, 0.9, 1.0];
+const TYRE_INFO = { soft: 'SNABBAST MEN SLITS FORT', medium: 'BALANSERAT GREPP OCH SLITAGE', hard: 'LÅNGSAMMAST MEN HÅLLER LÄNGE' };
+function gpSave() {
+  if (!save.gp) save.gp = { team: 'papaya', seat: 0, track: 0, night: false, laps: 5, quali: true, start: 'medium', level: 1, season: null };
+  return save.gp;
+}
+// alla 22 förare; spelaren tar en av stallets platser
+function gpField(o) {
+  const out = [];
+  TEAMS.forEach((tm) => tm.drivers.forEach(([name, code, skill], seat) => {
+    if (tm.id === o.team && seat === o.seat) out.push({ f1: true, team: tm.id, seat, name: 'Du', code: 'DU', skill: 0.88 * GP_SKILL[o.level ?? 1], compound: o.start || 'medium', isPlayer: true });
+    else out.push({ f1: true, team: tm.id, seat, name, code, skill: skill * GP_SKILL[o.level ?? 1], compound: 'medium' });
+  }));
+  return out;
+}
+// startordning ur kvaltider: datorförarnas uppskattas ur bil och förare, spelarens körs på riktigt
+function gpGrid(T, o, myTime) {
+  const field = gpField(o);
+  for (const c of field) {
+    if (c.isPlayer && myTime !== undefined) c.q = myTime || Infinity;
+    else c.q = lapEstimate(T, f1Stats(teamById(c.team).perf), c.skill) * (1 + (Math.random() - 0.5) * 0.016);
+  }
+  return field.sort((a, b) => a.q - b.q);
+}
+function startGP(o) {
+  const id = o.track + (o.night ? '_n' : '');
+  if (o.quali) return startRace({ track: id, laps: 3, mode: 'time', f1: true, quali: true, gp: o, wearLaps: o.laps, autopilot: o.autopilot, carsList: gpField(o).filter((c) => c.isPlayer).map((c) => ({ ...c, compound: 'soft' })) });
+  return startRace({ track: id, laps: o.laps, mode: 'race', f1: true, gp: o, wearLaps: o.laps, autopilot: o.autopilot, gpGrid: (T) => gpGrid(T, o) });
+}
+function startGPRace(o, grid) {
+  return startRace({ track: o.track + (o.night ? '_n' : ''), laps: o.laps, mode: 'race', f1: true, gp: o, wearLaps: o.laps, autopilot: o.autopilot, carsList: grid.map(({ q, ...c }) => c) });
+}
+function gpBack() {
+  G.results = null;
+  stopEngines();
+  startAttract();
+  G.menu = gpSave().season ? seasonMenu() : gpMenu(); G.state = 'gp';
+  startMusic('menu');
+  layoutTouch();
+}
+const lapsItem = (o) => ({
+  label: 'VARV', value: () => o.laps,
+  left: () => { const i = LAP_OPTIONS.indexOf(o.laps); o.laps = LAP_OPTIONS[Math.max(0, (i < 0 ? 1 : i) - 1)]; persist(); },
+  right: () => { const i = LAP_OPTIONS.indexOf(o.laps); o.laps = LAP_OPTIONS[Math.min(LAP_OPTIONS.length - 1, i + 1)]; persist(); },
+  info: () => (o.laps < 3 ? 'UNDER 3 VARV: INGET DEPÅKRAV' : ['DÄCKEN SLITS SOM I ETT HELT LOPP –', 'MINST ETT DEPÅSTOPP OCH TVÅ BLANDNINGAR KRÄVS']),
+});
+const tyreItem = (g) => ({
+  label: 'STARTDÄCK', value: () => COMPOUNDS[g.start].name, vcol: () => COMPOUNDS[g.start].color,
+  left: () => { g.start = COMPOUND_ORDER[(COMPOUND_ORDER.indexOf(g.start) + 2) % 3]; persist(); },
+  right: () => { g.start = COMPOUND_ORDER[(COMPOUND_ORDER.indexOf(g.start) + 1) % 3]; persist(); },
+  info: () => TYRE_INFO[g.start],
+});
+const qualiItem = (o) => ({
+  label: 'KVAL', value: () => (o.quali ? 'JA' : 'NEJ'), ok: () => { o.quali = !o.quali; persist(); }, left: () => { o.quali = !o.quali; persist(); }, right: () => { o.quali = !o.quali; persist(); },
+  info: () => (o.quali ? 'TRE VARV ENSAM PÅ MJUKA DÄCK – BÄSTA VARVET GER STARTRUTAN' : 'STARTRUTA EFTER BILENS STYRKA'),
+});
+function gpMenu() {
+  const g = gpSave();
+  const ti = () => TEAMS.findIndex((t) => t.id === g.team);
+  const cyc = (d) => { g.team = TEAMS[(ti() + d + TEAMS.length) % TEAMS.length].id; persist(); };
+  const seat = () => { g.seat ^= 1; persist(); };
+  const items = [
+    { label: 'STALL', value: () => teamById(g.team).name.toUpperCase(), left: () => cyc(-1), right: () => cyc(1), ok: () => cyc(1), info: () => 'DAGENS STALL – EGNA NAMN, SAMMA FÄRGER' },
+    { label: 'DU ERSÄTTER', value: () => teamById(g.team).drivers[g.seat][0].toUpperCase(), left: seat, right: seat, ok: seat, info: () => 'STALLKAMRAT: ' + teamById(g.team).drivers[g.seat ^ 1][0].toUpperCase() },
+    { label: 'MOTSTÅND', value: () => GP_LEVELS[g.level ?? 1], left: () => { g.level = Math.max(0, (g.level ?? 1) - 1); persist(); }, right: () => { g.level = Math.min(2, (g.level ?? 1) + 1); persist(); } },
+  ];
+  if (g.season) items.push({ label: 'FORTSÄTT SÄSONGEN', value: () => `${g.season.race + 1}/${GP_ORDER.length}`, ok: () => { sfx('ok'); G.menu = seasonMenu(); }, info: () => teamById(g.season.team).name.toUpperCase() + ' · ' + g.season.laps + ' VARV PER LOPP' });
+  items.push(
+    { label: 'NY SÄSONG', ok: () => { sfx('ok'); G.menu = newSeasonMenu(); }, info: () => [`${GP_ORDER.length} GRAND PRIX. POÄNG 25-18-15-12-10-8-6-4-2-1.`, 'FÖRAR- OCH KONSTRUKTÖRSMÄSTERSKAP.'] },
+    { label: 'ENSTAKA GRAND PRIX', ok: () => { sfx('ok'); G.menu = gpQuickMenu(); }, info: () => 'VÄLJ BANA, VARV, KVAL OCH STARTDÄCK' },
+    { label: 'TILLBAKA', ok: backToMain },
+  );
+  return new Menu('GRAND PRIX', items, { w: 250, back: backToMain, rowH: 14 });
+}
+function gpQuickMenu() {
+  const g = gpSave();
+  const back = () => { sfx('back'); G.menu = gpMenu(); };
+  const tr = (d) => { g.track = (g.track + d + GP_ORDER.length) % GP_ORDER.length; persist(); };
+  return new Menu('ENSTAKA GRAND PRIX', [
+    { label: 'BANA', value: () => TRACKS[GP_ORDER[g.track]].name.toUpperCase(), left: () => tr(-1), right: () => tr(1), info: () => THEMES[TRACKS[GP_ORDER[g.track]].theme].name.toUpperCase() },
+    { label: 'TID', value: () => (g.night ? 'NATT' : 'DAG'), ok: () => { g.night = !g.night; persist(); }, left: () => { g.night = !g.night; persist(); }, right: () => { g.night = !g.night; persist(); }, info: () => (g.night ? 'NATTLOPP UNDER STRÅLKASTARNA' : '') },
+    lapsItem(g), qualiItem(g), tyreItem(g),
+    { label: 'KÖR!', ok: () => { sfx('ok'); startGP({ track: GP_ORDER[g.track], night: g.night, laps: g.laps, quali: g.quali, start: g.start, team: g.team, seat: g.seat, level: g.level ?? 1 }); } },
+    { label: 'TILLBAKA', ok: back },
+  ], { w: 250, back, rowH: 14 });
+}
+function newSeasonMenu() {
+  const g = gpSave();
+  const back = () => { sfx('back'); G.menu = gpMenu(); };
+  return new Menu('NY SÄSONG', [
+    { label: 'STALL', value: () => teamById(g.team).name.toUpperCase() },
+    lapsItem(g), qualiItem(g),
+    {
+      label: 'STARTA SÄSONGEN', ok: () => {
+        sfx('ok');
+        const s = { team: g.team, seat: g.seat, level: g.level ?? 1, laps: g.laps, quali: g.quali, race: 0, pts: {}, cpts: {}, res: [] };
+        for (const c of gpField(s)) s.pts[c.code] = 0;
+        for (const tm of TEAMS) s.cpts[tm.id] = 0;
+        g.season = s; persist();
+        G.menu = seasonMenu();
+      },
+      info: () => (g.season ? 'DIN PÅGÅENDE SÄSONG ERSÄTTS' : `${GP_ORDER.length} LOPP MED ${teamById(g.team).name.toUpperCase()}`),
+    },
+    { label: 'TILLBAKA', ok: back },
+  ], { w: 250, back, rowH: 14 });
+}
+function seasonMenu() {
+  const g = gpSave(), s = g.season;
+  const tr = GP_ORDER[s.race], night = tr === 'hamnslingan';
+  let confirm = false;
+  const back = () => { sfx('back'); G.menu = gpMenu(); };
+  const m = new Menu(`SÄSONG – LOPP ${s.race + 1} AV ${GP_ORDER.length}`, [
+    { label: s.quali ? 'TILL KVALET!' : 'KÖR!', value: () => TRACKS[tr].name.toUpperCase() + (night ? ' (NATT)' : ''), ok: () => { sfx('ok'); startGP({ track: tr, night, laps: s.laps, quali: s.quali, start: g.start, team: s.team, seat: s.seat, level: s.level, season: true }); }, info: () => `${s.laps} VARV` + (night ? ' · NATTLOPP I HAMNEN' : '') },
+    tyreItem(g),
+    { label: 'STÄLLNING', ok: () => { sfx('ok'); G.results = { gpStand: true, back: () => { G.results = null; G.state = 'gp'; G.menu = seasonMenu(); } }; G.state = 'standings'; } },
+    { label: 'AVBRYT SÄSONGEN', value: () => (confirm ? 'SÄKER?' : ''), ok: () => { if (!confirm) { confirm = true; sfx('deny'); return; } sfx('back'); g.season = null; persist(); G.menu = gpMenu(); } },
+    { label: 'TILLBAKA', ok: back },
+  ], { w: 250, back, rowH: 14 });
+  m.gpTeam = s.team;
+  return m;
+}
+const gpCars = new Map();
+function drawGP(t) {
+  const m = G.menu, g = gpSave();
+  dimBg(0.55);
+  const r = m.draw(ctx, VW, VH, t, VW - 258, 8, 250);
+  const tm = teamById(m.gpTeam || g.team);
+  const LW = Math.max(150, VW - 258 - 16), LX = 8, LH = Math.max(r.H, 188);
+  panel(ctx, LX, 8, LW, LH, 'rgba(20,16,40,0.78)', '#6a6488');
+  drawText(ctx, tm.name.toUpperCase(), LX + LW / 2, 14, { big: true, grad: GRAD.gold, align: 'c' });
+  const sw = Math.min(LW - 40, 120), sx = Math.round(LX + LW / 2 - sw / 2);
+  [tm.c1, tm.c2, tm.c3].forEach((c, k) => { ctx.fillStyle = css(c); ctx.fillRect(sx + Math.round(k * sw / 3), 30, Math.round(sw / 3), 3); });
+  // bilen på en snurrande platta
+  const px = LX + Math.round(LW / 2), py = 8 + Math.round(LH * 0.36);
+  const look = { pal: { paint: tm.c1, paint2: tm.c2, stripe: tm.c3 }, tyre: COMPOUNDS[g.start].color };
+  const k = Math.round(((t * 0.55) % (Math.PI * 2)) / (Math.PI * 2) * 32) % 32;
+  const key = tm.id + g.start + ':' + k;
+  if (!gpCars.has(key)) { if (gpCars.size > 200) gpCars.clear(); gpCars.set(key, renderCar('f1', look, k / 32 * Math.PI * 2, 2)); }
+  const spr = gpCars.get(key);
+  ctx.fillStyle = '#2a2640'; for (let y = -10; y <= 10; y++) { const w = Math.round(Math.sqrt(100 - y * y) * 4.4); ctx.fillRect(px - w, py + 22 + Math.round(y / 2), w * 2, 1); }
+  ctx.fillStyle = '#3c3858'; for (let y = -9; y <= 9; y++) { const w = Math.round(Math.sqrt(81 - y * y) * 4.4); ctx.fillRect(px - w, py + 21 + Math.round(y / 2), w * 2, 1); }
+  ctx.drawImage(spr, px - spr.ox, py + 22 - spr.oy);
+  // förarna
+  const seat = m.gpTeam ? g.season.seat : g.seat;
+  let y = 8 + LH - 82;
+  tm.drivers.forEach(([name, code], k) => {
+    const me = k === seat;
+    drawText(ctx, me ? 'DU' : name.toUpperCase(), LX + 10, y, { color: me ? 0xffe080 : 0xffffff });
+    drawText(ctx, me ? '(ERSÄTTER ' + name.toUpperCase() + ')' : code, LX + LW - 10, y, { color: 0x9a94b0, align: 'r' });
+    y += 9;
+  });
+  // bilens styrka och stallkamratens skicklighet jämfört med fältet
+  const mate = tm.drivers[seat ^ 1];
+  const rows = [['BILEN', (tm.perf - 0.72) / 0.26], ['STALLKAMRAT', (mate[2] - 0.66) / 0.32]];
+  const bw = LW - 86;
+  y += 3;
+  rows.forEach(([n, v]) => {
+    const f = Math.round(bw * Math.max(0.06, Math.min(1, v)));
+    drawText(ctx, n, LX + 10, y, { color: 0xd8d4e8 });
+    ctx.fillStyle = '#2a2640'; ctx.fillRect(LX + 78, y - 1, bw, 6);
+    ctx.fillStyle = css(tm.c1 === 0x111114 ? tm.c3 : tm.c1); ctx.fillRect(LX + 78, y - 1, f, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(LX + 78, y - 1, f, 1);
+    y += 9;
+  });
+  drawText(ctx, input.touch ? 'DRS · BOX · DÄCK = KNAPPARNA I LOPPET' : 'MELLANSLAG = DRS · B = BOXA · 1/2/3 = DÄCK', LX + LW / 2, 8 + LH - 12, { color: 0x9a94b0, align: 'c' });
+}
+
+// resultat: kval, lopp och mästerskap
+function gpResults() {
+  const R = G.race, cfg = G.cfg, P = R.player, o = cfg.gp;
+  if (P.bestLap && (!save.records[cfg.track] || P.bestLap < save.records[cfg.track])) save.records[cfg.track] = P.bestLap;
+  if (cfg.quali) {
+    G.results = { gpQuali: true, cfg, grid: gpGrid(R.T, o, P.bestLap || Infinity), laps: P.lapTimes, best: P.bestLap };
+    persist(); G.state = 'results'; startMusic('menu');
+    return;
+  }
+  const order = R.finishOrder, lead = order[0], lapT = lead.finishTime / R.laps;
+  let fastest = null;
+  for (const c of order) if (c.bestLap && (!fastest || c.bestLap < fastest.bestLap)) fastest = c;
+  const rows = order.map((c, k) => {
+    const gap = c.finishTime - lead.finishTime;
+    return { name: c.isPlayer ? 'DU' : c.name.toUpperCase(), code: c.code, team: c.team, time: c.finishTime, gap, down: Math.max(0, Math.floor((R.laps * R.T.L - c.progress) / R.T.L)), best: c.bestLap, stops: c.stops, tyres: [...c.used], pts: F1_POINTS[k] || 0, me: c.isPlayer, pen: c.penalty || 0, fl: c === fastest };
+  });
+  const me = rows.find((r) => r.me), place = rows.indexOf(me) + 1;
+  const money = 100 + me.pts * 40;
+  save.money += money;
+  const res = { gpRace: true, cfg, rows, place, money };
+  const g = gpSave(), s = g.season;
+  if (o.season && s) {
+    for (const r of rows) { s.pts[r.code] = (s.pts[r.code] || 0) + r.pts; s.cpts[r.team] = (s.cpts[r.team] || 0) + r.pts; }
+    s.res.push(place);
+    s.race++;
+    if (s.race >= GP_ORDER.length) {
+      const dOrder = Object.entries(s.pts).sort((a, b) => b[1] - a[1]), cOrder = Object.entries(s.cpts).sort((a, b) => b[1] - a[1]);
+      res.seasonEnd = { ...s, place: dOrder.findIndex(([c]) => c === 'DU') + 1, cplace: cOrder.findIndex(([id]) => id === s.team) + 1 };
+      res.seasonEnd.bonus = [5000, 3000, 2000][res.seasonEnd.place - 1] || 500;
+      save.money += res.seasonEnd.bonus;
+      g.titles = g.titles || [];
+      if (res.seasonEnd.place === 1) g.titles.push(s.team);
+      g.season = null;
+    }
+  }
+  persist();
+  G.results = res; G.state = 'results';
+  startMusic('menu');
+}
+const N = { outline: null, shadow: false };
+function gpRowBase(X, y, W, k, team, me) {
+  if (me) { ctx.fillStyle = 'rgba(200,38,46,0.8)'; ctx.fillRect(X + 3, y - 1, W - 6, 8); }
+  else if (k % 2) { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(X + 3, y - 1, W - 6, 8); }
+  drawText(ctx, String(k + 1), X + 18, y, { color: k === 0 ? 0xffd040 : 0xffffff, align: 'r', ...N });
+  ctx.fillStyle = css(teamById(team).c1); ctx.fillRect(X + 22, y, 2, 6);
+  ctx.fillStyle = css(teamById(team).c3); ctx.fillRect(X + 24, y, 1, 6);
+}
+function drawGPQuali(t) {
+  const res = G.results, grid = res.grid;
+  dimBg(0.62);
+  const W = Math.min(VW - 16, 330), X = Math.round(VW / 2 - W / 2);
+  const rh = Math.max(7, Math.min(9, Math.floor((VH - 70) / grid.length)));
+  panel(ctx, X, 6, W, 34 + grid.length * rh + 8);
+  drawText(ctx, 'KVAL – ' + trackName(res.cfg.track), VW / 2, 12, { big: true, grad: GRAD.gold, align: 'c' });
+  drawText(ctx, 'FÖRARE', X + 28, 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'STALL', X + W * 0.47, 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'TID', X + W * 0.66, 28, { color: 0x9a94b0, ...N });
+  const p0 = grid[0].q;
+  grid.forEach((c, k) => {
+    const y = 38 + k * rh;
+    gpRowBase(X, y, W, k, c.team, c.isPlayer);
+    drawText(ctx, c.isPlayer ? 'DU' : c.name.toUpperCase(), X + 28, y, { color: 0xffffff, ...N });
+    drawText(ctx, teamById(c.team).short, X + W * 0.47, y, { color: 0xc8c0d8, ...N });
+    drawText(ctx, isFinite(c.q) ? fmtTime(c.q) : 'INGEN TID', X + W * 0.66, y, { color: 0xffffff, ...N });
+    if (k && isFinite(c.q)) drawText(ctx, '+' + (c.q - p0).toFixed(3), X + W - 8, y, { color: 0xd8d4e8, align: 'r', ...N });
+  });
+  const mine = grid.findIndex((c) => c.isPlayer) + 1;
+  const msg = mine === 1 ? 'POLE POSITION!' : `DU STARTAR ${ordinal(mine)}`;
+  if (mine > 1 || ((t * 3) | 0) % 2) drawText(ctx, msg, VW / 2, Math.min(VH - 30, 38 + grid.length * rh + 12), { big: true, grad: mine === 1 ? GRAD.fire : GRAD.white, align: 'c' });
+  if (((t * 2) | 0) % 2) drawText(ctx, input.touch ? 'TRYCK FÖR ATT GÅ TILL STARTEN' : 'ENTER – TILL STARTEN', VW / 2, VH - 12, { color: 0xffffff, align: 'c' });
+}
+function drawGPResults(t) {
+  const res = G.results, rows = res.rows;
+  dimBg(0.62);
+  const W = Math.min(VW - 12, 420), X = Math.round(VW / 2 - W / 2);
+  const rh = Math.max(7, Math.min(9, Math.floor((VH - 76) / rows.length)));
+  panel(ctx, X, 6, W, 34 + rows.length * rh + 22);
+  drawText(ctx, 'RESULTAT – ' + trackName(res.cfg.track), VW / 2, 12, { big: true, grad: GRAD.gold, align: 'c' });
+  const cx = [X + 28, X + W * 0.33, X + W * 0.47, X + W * 0.63, X + W * 0.79, X + W - 8];
+  drawText(ctx, 'FÖRARE', cx[0], 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'STALL', cx[1], 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'TID', cx[2], 28, { color: 0x9a94b0, ...N });
+  drawText(ctx, 'BÄSTA VARV', cx[3], 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'DÄCK', cx[4], 28, { color: 0x9a94b0, ...N }); drawText(ctx, 'P', cx[5], 28, { color: 0x9a94b0, align: 'r', ...N });
+  rows.forEach((r, k) => {
+    const y = 38 + k * rh;
+    gpRowBase(X, y, W, k, r.team, r.me);
+    drawText(ctx, r.name, cx[0], y, { color: 0xffffff, ...N });
+    drawText(ctx, teamById(r.team).short, cx[1], y, { color: 0xc8c0d8, ...N });
+    drawText(ctx, k === 0 ? fmtTime(r.time) : r.down ? `+${r.down} V` : '+' + r.gap.toFixed(1) + (r.pen ? ' (S)' : ''), cx[2], y, { color: r.pen ? 0xffa060 : 0xffffff, ...N });
+    drawText(ctx, fmtTime(r.best), cx[3], y, { color: r.fl ? 0xd070ff : 0xd8d4e8, ...N });
+    r.tyres.forEach((c, i) => { ctx.fillStyle = css(COMPOUNDS[c].color); ctx.fillRect(cx[4] + i * 6, y + 1, 4, 4); });
+    drawText(ctx, String(r.stops), cx[4] + 22, y, { color: 0x9a94b0, ...N });
+    if (r.pts) drawText(ctx, String(r.pts), cx[5], y, { color: 0xffe080, align: 'r', ...N });
+  });
+  const y = 38 + rows.length * rh + 4;
+  drawText(ctx, `LILA = SNABBASTE VARVET · SIFFRAN = ANTAL STOPP · (S) = STRAFF · +${res.money} KR`, VW / 2, y, { color: 0xd8d4e8, align: 'c', ...N });
+  const msg = res.place === 1 ? 'SEGER!' : res.place <= 3 ? `PALLEN – ${ordinal(res.place)}!` : ordinal(res.place) + ' PLATS';
+  if (res.place > 1 || ((t * 3) | 0) % 2) drawText(ctx, msg, VW / 2, Math.min(VH - 28, y + 12), { big: true, grad: res.place === 1 ? GRAD.fire : res.place <= 3 ? GRAD.gold : GRAD.white, align: 'c' });
+  if (((t * 2) | 0) % 2) drawText(ctx, input.touch ? 'TRYCK FÖR ATT FORTSÄTTA' : 'TRYCK ENTER', VW / 2, VH - 12, { color: 0xffffff, align: 'c' });
+}
+function drawGPStandings(t) {
+  const res = G.results, s = res.final || gpSave().season;
+  dimBg(0.62);
+  if (!s) return;
+  const names = {};
+  for (const c of gpField(s)) names[c.code] = c;
+  const dOrder = Object.entries(s.pts).sort((a, b) => b[1] - a[1]), cOrder = Object.entries(s.cpts).sort((a, b) => b[1] - a[1]);
+  const W1 = Math.min(230, Math.floor((VW - 24) * 0.55)), W2 = Math.min(190, VW - 24 - W1);
+  const X1 = Math.round(VW / 2 - (W1 + W2 + 8) / 2), X2 = X1 + W1 + 8;
+  const rh = Math.max(7, Math.min(9, Math.floor((VH - 70) / dOrder.length)));
+  panel(ctx, X1, 6, W1, 30 + dOrder.length * rh + 6);
+  panel(ctx, X2, 6, W2, 30 + cOrder.length * rh + 6);
+  drawText(ctx, 'FÖRARE', X1 + W1 / 2, 12, { big: true, grad: GRAD.gold, align: 'c' });
+  drawText(ctx, 'KONSTRUKTÖRER', X2 + W2 / 2, 12, { big: true, grad: GRAD.gold, align: 'c' });
+  drawText(ctx, `EFTER ${s.race} AV ${GP_ORDER.length} LOPP`, X1 + W1 / 2, 26, { color: 0x9a94b0, align: 'c', ...N });
+  dOrder.forEach(([code, p], k) => {
+    const y = 36 + k * rh, c = names[code] || { team: 'tjur', name: code };
+    gpRowBase(X1, y, W1, k, c.team, code === 'DU');
+    drawText(ctx, code === 'DU' ? 'DU' : c.name.toUpperCase(), X1 + 28, y, { color: 0xffffff, ...N });
+    drawText(ctx, String(p), X1 + W1 - 8, y, { color: 0xffe080, align: 'r', ...N });
+  });
+  cOrder.forEach(([id, p], k) => {
+    const y = 36 + k * rh;
+    gpRowBase(X2, y, W2, k, id, id === s.team);
+    drawText(ctx, teamById(id).name.toUpperCase(), X2 + 28, y, { color: 0xffffff, ...N });
+    drawText(ctx, String(p), X2 + W2 - 8, y, { color: 0xffe080, align: 'r', ...N });
+  });
+  const F = res.final;
+  if (F) {
+    const y = 36 + cOrder.length * rh + 14, cx = X2 + W2 / 2;
+    if (F.place === 1) { if (((t * 3) | 0) % 2) drawText(ctx, 'VÄRLDSMÄSTARE!', cx, y, { big: true, grad: GRAD.fire, align: 'c' }); }
+    else drawText(ctx, ordinal(F.place) + ' I VM', cx, y, { big: true, grad: GRAD.white, align: 'c' });
+    if (F.cplace === 1) drawText(ctx, 'STALLET TOG KONSTRUKTÖRSTITELN!', cx, y + 18, { color: 0xffe080, align: 'c' });
+    drawText(ctx, `SÄSONGSBONUS +${F.bonus} KR`, cx, y + 28, { color: 0xffe080, align: 'c' });
+  }
+  if (((t * 2) | 0) % 2) drawText(ctx, input.touch ? 'TRYCK FÖR ATT FORTSÄTTA' : 'TRYCK ENTER', VW / 2, VH - 12, { color: 0xffffff, align: 'c' });
 }
 
 // ---------- online ----------
@@ -744,6 +1091,13 @@ function drawLobby(t) {
 
 // ---------- paus ----------
 function pauseMenu() {
+  const back = () => { G.state = 'race'; layoutTouch(); };
+  if (G.cfg && G.cfg.f1) return new Menu('PAUS', [
+    { label: 'FORTSÄTT', ok: () => { sfx('ok'); back(); } },
+    { label: G.cfg.quali ? 'GÖR OM KVALET' : 'STARTA OM', ok: () => { sfx('ok'); startRace(G.cfg); } },
+    G.cfg.quali ? { label: 'AVSLUTA KVALET', ok: () => { sfx('ok'); showResults(); }, info: () => 'BÄSTA VARVET HITTILLS RÄKNAS' }
+      : { label: 'AVSLUTA LOPPET', ok: () => { sfx('back'); gpBack(); }, info: () => (G.cfg.gp.season ? 'LOPPET RÄKNAS INTE – DU KÖR DET IGEN' : '') },
+  ], { w: 190, back });
   if (NET.role) return new Menu('ONLINE', [
     { label: 'FORTSÄTT', ok: () => { sfx('ok'); G.state = 'race'; layoutTouch(); } },
     { label: 'LÄMNA LOPPET', ok: () => { sfx('back'); leaveOnline(); } },
@@ -833,14 +1187,15 @@ function frameBody(now) {
     // motorljud
     if (racing && R.player && audio.ready) {
       const P = R.player;
-      engineSet(0, P.speed / P.st.vmax, P.inp.gas > 0 && R.phase !== 'countdown' ? 1 : R.phase === 'countdown' && P.inp.gas > 0 ? 1 : 0, P.air ? 0 : P.slip, P.nitroT > 0, P.wreckT > 0 || P.sinkT > 0 ? 0 : 1);
+      engineSet(0, P.speed / P.st.vmax, P.inp.gas > 0 && R.phase !== 'countdown' ? 1 : R.phase === 'countdown' && P.inp.gas > 0 ? 1 : 0, P.air ? 0 : P.slip, P.nitroT > 0, P.wreckT > 0 || P.sinkT > 0 ? 0 : 1, !!R.f1);
       let best = null, bd = 1e9;
       for (const c of R.cars) if (c !== P) { const d = Math.hypot(c.x - P.x, c.y - P.y); if (d < bd) { bd = d; best = c; } }
-      if (best) engineSet(1, best.speed / best.st.vmax, best.inp.gas > 0, best.slip, best.nitroT > 0, Math.max(0, 1 - bd / 260));
+      if (best) engineSet(1, best.speed / best.st.vmax, best.inp.gas > 0, best.slip, best.nitroT > 0, Math.max(0, 1 - bd / 260), !!R.f1);
     }
     if (G.state === 'title') drawTitle(t);
     else if (G.state === 'menu' || G.state === 'sub') { dimBg(0.45); drawText(ctx, 'KURVKUNGEN', VW / 2, 10, { big: true, scale: 2, grad: GRAD.fire, align: 'c' }); G.menu.draw(ctx, VW, VH, t, null, null, null); drawText(ctx, save.money + ' KR', VW - 6, VH - 12, { color: 0xffe080, align: 'r' }); }
     else if (G.state === 'garage') drawGarage(t);
+    else if (G.state === 'gp') drawGP(t);
     else if (G.state === 'pause') { dimBg(0.5); G.menu.draw(ctx, VW, VH, t); }
     else if (G.state === 'results' || G.state === 'standings') drawResults(t);
     else if (G.state === 'lobby') drawLobby(t);
@@ -853,13 +1208,23 @@ function frameBody(now) {
 }
 
 function handle(a) {
+  if (G.state === 'race' && a === 'back') a = 'pause'; // Esc pausar loppet
   if (G.state === 'code') { codeAction(a); return; }
   if (a === 'music') { toggleMusic(); return; }
   const st = G.state;
   if (st === 'title') { if (a === 'ok' || (a && a.tap)) { sfx('ok'); G.menu = mainMenu(); G.state = 'menu'; } return; }
   if (st === 'code') { codeAction(a); return; }
   if (st === 'lobby') { if (a !== 'pause') G.menu.action(a); return; }
-  if (st === 'menu' || st === 'sub' || st === 'garage' || st === 'pause') { if (a === 'pause' && st === 'pause') { G.state = 'race'; layoutTouch(); return; } if (a !== 'pause') G.menu.action(a); return; }
+  if (st === 'menu' || st === 'sub' || st === 'garage' || st === 'pause' || st === 'gp') { if (a === 'pause' && st === 'pause') { G.state = 'race'; layoutTouch(); return; } if (a !== 'pause') G.menu.action(a); return; }
+  if (st === 'race' && G.race.f1) {
+    const P = G.race.player;
+    if (!P || P.ai || G.race.mode === 'time') { if (a !== 'pause' && a !== 'reset') return; }
+    else if (a === 'box') { if (!P.pitPhase && !P.finished) { P.boxing = !P.boxing; sfx(P.boxing ? 'ok' : 'back'); G.hud.say(P.boxing ? 'BOXA, BOXA!' : 'STANNA UTE', 1.4, P.boxing ? GRAD.gold : GRAD.white, false); } return; }
+    else if (a === 'tyre' || /^tyre[123]$/.test(a)) {
+      P.nextTyre = a === 'tyre' ? COMPOUND_ORDER[(COMPOUND_ORDER.indexOf(P.nextTyre) + 1) % 3] : COMPOUND_ORDER[+a[4] - 1];
+      sfx('menu'); G.hud.say('NÄSTA DÄCK: ' + COMPOUNDS[P.nextTyre].name, 1.2, GRAD.white, false); return;
+    }
+  }
   if (st === 'race' && a === 'horn') { const P = G.race.player; if (P && P.st.horn) { sfx('horn'); if (NET.role === 'guest') NET.client.send({ t: 'h' }); else G.race.animals.scare(P.x, P.y, 160); } return; }
   if (st === 'race' && NET.role === 'guest' && a === 'reset') { NET.client.send({ t: 'reset' }); return; }
   if (st === 'race') { if (a === 'reset' && G.race.player && G.race.phase === 'race' && G.race.player.wreckT <= 0) { G.race.respawn(G.race.player); return; } if (a === 'pause') { G.menu = pauseMenu(); G.state = 'pause'; layoutTouch(); stopEnginesQuiet(); } return; }
@@ -879,5 +1244,5 @@ boot().catch((e) => { console.error(e); G.msg = 'FEL: ' + e.message; });
 requestAnimationFrame(frame);
 
 // testkrokar
-window.KK = { G, startRace, CUPS, save, NET, hostRoom, joinRoom, hostStart };
+window.KK = { G, startRace, CUPS, save, NET, hostRoom, joinRoom, hostStart, startGP, gpGrid, gpField, lapEstimate, f1Stats, teamById };
 void THEMES; void TRACKS; void carSprite; void tw; void stopMusic; void REAR;

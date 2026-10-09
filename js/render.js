@@ -3,10 +3,12 @@ import { isoX, isoY, SHX, SHY } from './iso.js?v=1';
 import { renderCar, renderShadow, burnt, palette, lookKey, ANGLES } from './carsprites.js?v=1';
 import { PICKUPS, MINE, BARREL } from './props.js?v=1';
 import { css } from './pix.js?v=1';
+import { COMPOUNDS, TEAMS } from './f1.js?v=1';
 
 // ---------- spritebank för fordon (ritas vid behov, cachas) ----------
 const bank = new Map(), shadows = new Map();
 export function lookOf(c) {
+  if (c.f1) { const k = c.tyre.c + (c.wingLost ? '!' : ''); if (!c._look || c._lookK !== k) { c._lookK = k; c._look = { pal: c.pal, tyre: COMPOUNDS[c.tyre.c].color, nowing: !!c.wingLost }; } return c._look; }
   if (!c._look) c._look = { pal: palette(c.color), pattern: c.pattern || 'rander', spoiler: !!(c.acc && c.acc.spoiler), ramm: (c.upg && c.upg.ramm) || 0 };
   return c._look;
 }
@@ -160,6 +162,18 @@ function drawCar(ctx, R, c, P, t) {
     ctx.drawImage(spr, 0, 0, spr.width, cut, sx - spr.ox, sy - spr.oy, spr.width, cut);
   } else ctx.drawImage(spr, sx - spr.ox, sy - spr.oy);
   if (c.hitFlash > 0 || c.empT > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = c.empT > 0 ? 0.25 + 0.25 * Math.sin(t * 40) : 0.6; ctx.drawImage(spr, sx - spr.ox, sy - spr.oy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+  // depåpersonal runt bilen under stoppet
+  if (c.pitPhase === 'stop') {
+    const team = TEAMS[c.teamIdx] || TEAMS[0], fx = Math.cos(c.ang), fy = Math.sin(c.ang), rx = -fy, ry = fx;
+    const spots = [[7, 7], [7, -7], [-7.6, 7], [-7.6, -7], [14, 0], [-14, 0], [0, 9], [3, -9]];
+    spots.forEach(([a, b], k) => {
+      const wob = Math.sin(t * 18 + k) > 0.6 ? 1 : 0;
+      const [px, py] = P(c.x + fx * a + rx * b, c.y + fy * a + ry * b, c.z);
+      ctx.fillStyle = css(team.c1); ctx.fillRect(px - 1, py - 5 - wob, 3, 4);
+      ctx.fillStyle = '#1a1426'; ctx.fillRect(px - 1, py - 1, 1, 1); ctx.fillRect(px + 1, py - 1, 1, 1);
+      ctx.fillStyle = k % 3 ? '#f2f0ea' : css(team.c3); ctx.fillRect(px - 1, py - 7 - wob, 3, 2);
+    });
+  }
   // polisens blåljus blinkar
   if (c.model === 'polisen' && c.wreckT <= 0) {
     const ph = ((t * 6) | 0) % 2;

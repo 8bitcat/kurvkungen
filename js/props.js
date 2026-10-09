@@ -248,6 +248,25 @@ export function railSprite(ax, ay, az, bx, by, bz, color = 0x9aa8b8) {
   });
 }
 
+// Depåmur i betong med fångstnät ovanpå (världspunkter längs muren)
+export function wallSprite(ax, ay, az, bx, by, bz) {
+  const sa = [isoX(ax, ay), isoY(ax, ay, az)], sb = [isoX(bx, by), isoY(bx, by, bz)];
+  const x0 = Math.floor(Math.min(sa[0], sb[0])) - 2, x1 = Math.ceil(Math.max(sa[0], sb[0])) + 2;
+  const y0 = Math.floor(Math.min(sa[1], sb[1])) - 16, y1 = Math.ceil(Math.max(sa[1], sb[1])) + 2;
+  const mx = (ax + bx) / 2, my = (ay + by) / 2, mz = (az + bz) / 2;
+  const ox = Math.round(isoX(mx, my)) - x0, oy = Math.round(isoY(mx, my, mz)) - y0;
+  return sprite(x1 - x0 + 1, y1 - y0 + 1, ox, oy, (P) => {
+    const n = Math.max(1, Math.ceil(Math.abs(sb[0] - sa[0])));
+    for (let k = 0; k <= n; k++) {
+      const t = k / n, x = Math.round(sa[0] + (sb[0] - sa[0]) * t) - x0, y = Math.round(sa[1] + (sb[1] - sa[1]) * t) - y0;
+      P.px(x, y - 4, 0xeeeae2); P.px(x, y - 3, 0xc8c4bc); P.px(x, y - 2, 0xb0aca4); P.px(x, y - 1, 0x9a968e); P.px(x, y, 0x7a766e);
+      if ((Math.floor(sa[0]) + k) % 6 === 0) for (let r = 5; r < 13; r++) P.px(x, y - r, 0x5a5e6a);
+      else for (let r = 5; r < 13; r++) if ((x + r) % 2 === 0) P.px(x, y - r, 0x9aa0ac, 0.55);
+      P.px(x, y - 13, 0x6a6e7a);
+    }
+  });
+}
+
 // Startportal med banderoll tvärs över vägen (världspunkter för stolparnas fötter).
 export function gantrySprite(lx, ly, rx, ry, z, label) {
   const H = 30, B0 = 22, B1 = 30;

@@ -7,6 +7,7 @@ import { idxAt } from './trackgeo.js?v=1';
 import { CONE_DOWN, oilSprite, glueSprite } from './props.js?v=1';
 import { Animals } from './animals.js?v=1';
 import { css } from './pix.js?v=1';
+import { gpSetup, gpCountdown, gpAero, gpCar, gpFinish } from './gp.js?v=1';
 
 const STEP = 1 / 120;
 const PICK_KINDS = ['pengar', 'pengar', 'reparera', 'ammo', 'nitro', 'pengar'];
@@ -32,8 +33,9 @@ export class Race {
     const T = this.T;
     // startrutor bakom linjen (två led)
     const grid = [];
-    for (let k = 0; k < 10; k++) {
-      const s = T.L - 26 - k * 30;
+    const GS = opt.f1 ? 28 : 30;
+    for (let k = 0; k < Math.max(10, opt.cars.length); k++) {
+      const s = T.L - 26 - k * GS;
       grid.push({ i: idxAt(T, s), lat: (k & 1 ? -1 : 1) * T.HW[0] * 0.44 });
     }
     opt.cars.forEach((c, k) => {
@@ -51,7 +53,7 @@ export class Race {
     this.order.forEach((c, k) => { c.place = k + 1; });
     // upplockningar längs banan
     this.picks = [];
-    if (this.mode !== 'time') {
+    if (this.mode !== 'time' && !opt.f1) {
       const spacing = 330;
       for (let s = 260, k = 0; s < T.L - 120; s += spacing, k++) {
         const i = idxAt(T, s);
@@ -62,7 +64,8 @@ export class Race {
         }
       }
     }
-    this.animals = new Animals(this, opt.animals !== false && this.mode !== 'time');
+    this.animals = new Animals(this, opt.animals !== false && this.mode !== 'time' && !opt.f1);
+    if (opt.f1) gpSetup(this, opt);
   }
 
   get leader() { return this.order ? this.order[0] : this.cars[0]; }
@@ -76,6 +79,7 @@ export class Race {
   tick(dt) {
     this.time += dt;
     if (this.phase === 'countdown' && this.hold) { /* väntar på gästerna */ }
+    else if (this.phase === 'countdown' && this.f1) gpCountdown(this, dt);
     else if (this.phase === 'countdown') {
       const before = Math.ceil(this.countdown);
       this.countdown -= dt;
@@ -84,9 +88,11 @@ export class Race {
       if (this.countdown <= 0) { this.phase = 'race'; for (const c of this.cars) c.lapStart = 0; }
     } else this.raceTime += dt;
     const racing = this.phase === 'race' || this.phase === 'finish';
-    const ref = this.player && !this.player.finished ? this.player : null;
+    const ref = this.player && !this.player.finished && !this.f1 ? this.player : null;
+    if (this.f1 && racing) gpAero(this);
     for (const c of this.cars) {
       if (c.ai) aiDrive(c, this, dt);
+      if (this.f1) gpCar(this, c, dt);
       if (!racing) { c.inp.fire = c.inp.rear = c.inp.nitro = false; }
       if (c.ai && ref && this.mode === 'race') {
         const gap = c.progress - ref.progress;
@@ -113,7 +119,7 @@ export class Race {
   // Bilar som fastnat eller irrar utanför banan sätts tillbaka
   rescue(c, dt) {
     if (c.finished && !c.ai) return;
-    if (c.wreckT > 0 || c.sinkT > 0 || this.raceTime < 3) { c.progT = 0; c.progMark = c.progress; return; }
+    if (c.wreckT > 0 || c.sinkT > 0 || this.raceTime < 3 || c.pitPhase) { c.progT = 0; c.progMark = c.progress; return; }
     c.progT = (c.progT || 0) + dt;
     if (c.progMark === undefined) c.progMark = c.progress;
     const off = c.dist > c.hw + 8;
@@ -126,12 +132,35 @@ export class Race {
   }
 
   // ---------- skada, vrak, återinsättning ----------
-  damage(car, amt, by, why) {
+  damage(car, amt, by, why, info) {
     if (car.inv > 0 || car.wreckT > 0 || amt <= 0) return;
+    if (this.f1) { this.f1Damage(car, amt, why, info || {}); return; }
     car.dmg += amt * car.st.armor * (why === 'ram' ? car.st.ramArmor : 1);
     car.hitFlash = 0.15;
     if (by && by !== car) { car.lastHitBy = by; car.lastHitT = this.time; }
     if (car.dmg >= 100) this.wreck(car, why);
+  }
+  // Grand Prix: framvingen skadas eller lossnar, däcken kan punkteras. Lagas i depån.
+  f1Damage(car, amt, why, info) {
+    car.hitFlash = 0.12;
+    if (car.pitPhase === 'stop' || car.f1 !== true) return;
+    const front = info.front ?? (why !== 'ram');
+    if (front) {
+      car.wing = Math.min(100, car.wing + amt * 2.2);
+      if (!car.wingLost && (car.wing >= 100 || amt > 13)) {
+        car.wingLost = true; car.wing = 100;
+        const fx = Math.cos(car.ang), fy = Math.sin(car.ang), x = car.x + fx * 12, y = car.y + fy * 12;
+        for (let i = 0; i < 9; i++) { const a = Math.random() * 6.283, s = 40 + Math.random() * 90; this.fx.add('debris', x, y, car.z + 2, car.vx * 0.5 + Math.cos(a) * s, car.vy * 0.5 + Math.sin(a) * s, 50 + Math.random() * 70, 0.8 + Math.random() * 0.6, 2, 420, 0.5, i % 3 ? car.pal.paint : car.pal.stripe); }
+        this.fx.sparks(x, y, car.z + 2, 10, 120);
+        this.events('wingoff', car);
+      }
+    }
+    // punka: hjul mot hjul från sidan, eller en riktigt hård smäll
+    if (!car.punct && (info.side || amt > 11) && Math.random() < Math.min(0.45, (amt - 4) * 0.045)) {
+      car.punct = Math.random() < 0.5 ? -1 : 1;
+      this.fx.sparks(car.x, car.y, car.z + 2, 8, 90);
+      this.events('puncture', car, 'hit');
+    }
   }
   wreck(car) {
     car.dmg = 100; car.wreckT = 2.4; car.air = true; car.vz = 150;
@@ -183,6 +212,7 @@ export class Race {
     car.vx = Math.cos(car.ang) * v; car.vy = Math.sin(car.ang) * v;
     car.inv = 2; car.wreckT = 0; car.sinkT = 0; car.oilT = 0; car.burnT = 0; car.empT = 0; car.glueT = 0; car.tackleT = 0;
     if (car.dmg >= 100) car.dmg = 35;
+    if (car.pitPhase) { car.pitPhase = null; car.vcap = 0; }
     this.events('respawn', car);
   }
   push(car, dx, dy, imp) {
@@ -199,6 +229,7 @@ export class Race {
     for (let a = 0; a < cs.length; a++) for (let b = a + 1; b < cs.length; b++) {
       const A = cs[a], B = cs[b];
       if (A.sinkT > 0 || B.sinkT > 0) continue;
+      if (A.pitPhase && B.pitPhase) continue; // depåfilen: inga krockar mellan bilar som är inne
       if (Math.abs(A.z - B.z) > 9) continue;
       const dx0 = B.x - A.x, dy0 = B.y - A.y, reach = (A.len + B.len) / 2 + 4;
       if (dx0 * dx0 + dy0 * dy0 > reach * reach) continue;
@@ -216,7 +247,7 @@ export class Race {
         if (rv >= 0) continue;
         const j = -(1 + 0.45) * rv / im;
         // tackling: extra knuff, den lätta åker längst, rambock förstärker
-        const big = -rv > 40;
+        const big = -rv > 40 && !this.f1;
         const kA = big ? 1 + (TACKLE - 1) * B.st.ram : 1, kB = big ? 1 + (TACKLE - 1) * A.st.ram : 1;
         const dvA = j / ma * kA, dvB = j / mb * kB;
         A.vx -= nx * dvA; A.vy -= ny * dvA; B.vx += nx * dvB; B.vy += ny * dvB;
@@ -232,7 +263,10 @@ export class Race {
         const hit = -rv;
         if (hit > 55) {
           const dmg = (hit - 55) * 0.075;
-          this.damage(A, dmg * mb / (ma + mb) * 1.8 * B.st.ram, B, 'ram'); this.damage(B, dmg * ma / (ma + mb) * 1.8 * A.st.ram, A, 'ram');
+          // var på bilen träffen satt: nosen (framvingen) eller sidan (hjul mot hjul → punka)
+          const fa = ca[0] * nx + ca[1] * ny, fb = -(cb[0] * nx + cb[1] * ny);
+          this.damage(A, dmg * mb / (ma + mb) * 1.8 * B.st.ram, B, 'ram', { front: fa > 0.55, side: Math.abs(fa) < 0.55 });
+          this.damage(B, dmg * ma / (ma + mb) * 1.8 * A.st.ram, A, 'ram', { front: fb > 0.55, side: Math.abs(fb) < 0.55 });
           this.fx.sparks((ax + bx) / 2, (ay + by) / 2, A.z + 4, 4 + (hit / 22) | 0);
         }
         if (hit > hitMax) { hitMax = hit; hx = (ax + bx) / 2; hy = (ay + by) / 2; }
@@ -412,6 +446,12 @@ export class Race {
     }
     if (c.wreckT > 0) { if (Math.random() < 0.5) this.fx.smoke(c.x, c.y, c.z + 6, 1, true, 6); if (Math.random() < 0.3) this.fx.add('fire', c.x + (Math.random() - 0.5) * 8, c.y + (Math.random() - 0.5) * 8, c.z + 6, 0, 0, 20, 0.4, 2, -10, 1); }
     else if (c.dmg > 55 && Math.random() < (c.dmg - 50) / 140) this.fx.smoke(c.x + fx * 7, c.y + fy * 7, c.z + 7, 1, c.dmg > 78);
+    // punka: gnistor och gummirök från fälgen
+    if (c.punct && c.speed > 40 && !c.air) {
+      const ox = c.len / 2 - 5, oy = c.punct * (c.wid / 2 - 1), wx = c.x + fx * ox - fy * oy, wy = c.y + fy * ox + fx * oy;
+      if (Math.random() < 0.7) this.fx.sparks(wx, wy, c.z + 1, 1, 70);
+      if (Math.random() < 0.25) this.fx.smoke(wx, wy, c.z + 2, 1, true, 2);
+    }
     if (c.burnT > 0 && Math.random() < 0.6) this.fx.add('fire', c.x + (Math.random() - 0.5) * c.wid, c.y + (Math.random() - 0.5) * c.wid, c.z + 6, 0, 0, 30, 0.35, 2, -20, 1);
     if (c.empT > 0 && Math.random() < 0.3) this.fx.add('flame', c.x + (Math.random() - 0.5) * c.wid, c.y + (Math.random() - 0.5) * c.wid, c.z + 6, (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 60, 40, 0.15, 1, 0, 1);
     if (c.nitroT > 0) for (const side of [-2, 2]) this.fx.add('flame', c.x - fx * (back + 1) - fy * side, c.y - fy * (back + 1) + fx * side, c.z + 2.5, -fx * 60 + c.vx * 0.6, -fy * 60 + c.vy * 0.6, 0, 0.16, 2, 0, 3);
@@ -600,6 +640,7 @@ export class Race {
         c.lap = lap;
         if (lap >= this.laps && this.mode !== 'attract') {
           c.finished = true; c.finishTime = this.raceTime; this.finishOrder.push(c);
+          if (this.f1) gpFinish(this, c);
           this.events('finish', c, this.finishOrder.length);
           if ((c.isPlayer || c.human) && this.phase !== 'finish' && this.cars.filter((h) => h.isPlayer || h.human).every((h) => h.finished)) { this.phase = 'finish'; this.endT = 0; }
           if ((c.isPlayer || c.human) && !this.firstHuman) this.firstHuman = this.raceTime;
@@ -619,11 +660,12 @@ export class Race {
     if (this.phase === 'finish') {
       this.endT += dt;
       const allDone = this.cars.every((c) => c.finished);
-      if (allDone || this.endT > 14) {
+      if (allDone || this.endT > (this.f1 ? 30 : 14)) {
         for (const c of order) if (!c.finished) {
           c.finished = true;
           const left = this.laps * T.L - c.progress;
           c.finishTime = this.raceTime + left / Math.max(120, c.st.vmax * 0.75);
+          if (this.f1) gpFinish(this, c);
           this.finishOrder.push(c);
         }
         this.finishOrder.sort((a, b) => a.finishTime - b.finishTime);

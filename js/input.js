@@ -3,7 +3,7 @@ const keys = new Set();
 const actions = [];
 const MAP_ACT = {
   ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
-  Enter: 'ok', Space: 'ok', NumpadEnter: 'ok', Escape: 'back', Backspace: 'back', KeyP: 'pause', KeyM: 'music', KeyR: 'reset', KeyT: 'horn', KeyH: 'horn',
+  Enter: 'ok', Space: 'ok', NumpadEnter: 'ok', Escape: 'back', Backspace: 'back', KeyP: 'pause', KeyM: 'music', KeyR: 'reset', KeyT: 'horn', KeyH: 'horn', KeyB: 'box', Digit1: 'tyre1', Digit2: 'tyre2', Digit3: 'tyre3', Numpad1: 'tyre1', Numpad2: 'tyre2', Numpad3: 'tyre3',
 };
 export const input = { touch: false, autoGas: false, pointer: null, lastDevice: 'kb' };
 
@@ -13,7 +13,6 @@ addEventListener('keydown', (e) => {
   const a = MAP_ACT[e.code];
   if (a) actions.push(a);
   if (/^Key[A-Z]$/.test(e.code)) actions.push({ ch: e.code.slice(3) });
-  if (e.code === 'Escape') actions.push('pause');
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
@@ -22,6 +21,7 @@ addEventListener('blur', () => keys.clear());
 // ---------- pek ----------
 export const touchButtons = []; // {id, x, y, r} i spelpixlar, sätts av main
 const touches = new Map();
+const TAP = new Set(['pause', 'box', 'tyre']); // knappar som ger en händelse i stället för att hållas
 let toLogical = (x, y) => [x, y];
 export function setPointerMap(fn) { toLogical = fn; }
 function hitButton(x, y) {
@@ -37,10 +37,10 @@ function onTouch(e) {
       const b = hitButton(x, y);
       touches.set(t.identifier, { b, x, y, x0: x, y0: y });
       if (!b) actions.push({ tap: [x, y] });
-      if (b === 'pause') actions.push('pause');
+      if (TAP.has(b)) actions.push(b);
     } else if (e.type === 'touchmove') {
       const o = touches.get(t.identifier);
-      if (o) { o.x = x; o.y = y; const b = hitButton(x, y); if (b && b !== 'pause' && o.b !== 'pause') o.b = b; }
+      if (o) { o.x = x; o.y = y; const b = hitButton(x, y); if (b && !TAP.has(b) && !TAP.has(o.b)) o.b = b; }
     } else touches.delete(t.identifier);
   }
   e.preventDefault();

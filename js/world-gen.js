@@ -5,7 +5,7 @@
 //  - vägkorridoren planas ut; utanför blir det slänter (fyllning/skärning)
 //  - vägen ska ALLTID synas: inget får sticka upp framför den i iso-vyn (taket C)
 //  - skog = kronor i höjdkartan (renderas som terräng), enstaka träd längs vägen = sprites
-import { buildTrack, nearest } from './trackgeo.js?v=1';
+import { buildTrack, nearest, relS } from './trackgeo.js?v=1';
 import { fbm, vnoise } from './noise.js?v=1';
 import { hash, sm } from './pix.js?v=1';
 import { THEMES } from './tracks.js?v=1';
@@ -171,6 +171,7 @@ export function generateWorld(def) {
   }
 
   const Hm = new Float32Array(N), mat = new Uint8Array(N), C = new Float32Array(N).fill(1e9);
+  const pitCells = []; let pitBase = 1e9;
   const RD = new Uint8Array(N); // avstånd till vägkanten (klampat), används för träd/skog
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -220,6 +221,18 @@ export function generateWorld(def) {
         if (m === MAT.WATER && h > 0.2) m = MAT.ROCK;
         if (dist < hw + 8) C[ci] = Math.min(C[ci], zr);
       }
+      if (def.f1 && est < 230) {
+        const d = q.d, rs = relS(T, q.s), K = T.KS[si];
+        // grusfällor på utsidan av kurvorna
+        if (Math.abs(K) > 0.0026 && d * K > 0 && dist > hw + 7 && dist < hw + 48 && m !== MAT.WATER && !(m & DECK)) { h = zr; m = MAT.SAND; if (dist < hw + 30) C[ci] = Math.min(C[ci], zr); }
+        // depåfilen och depåbyggnaden
+        const P = T.pit;
+        if (P && rs > P.s0 - 30 && rs < P.s1 + 30) {
+          const sd = d * P.side;
+          if (sd > hw - 2 && sd < P.bld1 + 8) { h = zr; m = MAT.LAND; if (sd < P.bld0) C[ci] = Math.min(C[ci], zr); }
+          if (rs > P.boxS[0] - 40 && rs < P.boxS[P.boxS.length - 1] + 40 && sd >= P.bld0 && sd < P.bld1) { pitCells.push(ci); pitBase = Math.min(pitBase, zr); }
+        }
+      }
       Hm[ci] = h; mat[ci] = m;
     }
   }
@@ -251,7 +264,11 @@ export function generateWorld(def) {
   }
 
   // Byggnader: stadskvarter med platta tak, eller lador och bondgårdar med sadeltak
-  const B = [], bid = new Uint16Array(th.buildings ? N : 1);
+  const B = [], bid = new Uint16Array(th.buildings || T.pit ? N : 1);
+  if (pitCells.length) {
+    B.push({ kind: 'pits', base: pitBase, wall: pitBase + 16, top: pitBase + 16, style: 0, axis: 0, cx: 0, cy: 0, x0: 0, y0: 0, x1: 0, y1: 0 });
+    for (const ci of pitCells) { Hm[ci] = pitBase + 16; mat[ci] = MAT.BUILD; bid[ci] = 1; }
+  }
   if (th.buildings) {
     const tryBuild = (x0, y0, x1, y1, hT, kind, style, axis) => {
       x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
@@ -381,8 +398,8 @@ export function generateWorld(def) {
     const ix = x | 0, iy = y | 0;
     if (ix < 2 || iy < 2 || ix >= W - 2 || iy >= H - 2) continue;
     const ci = iy * W + ix, rd = RD[ci];
-    if (mat[ci] !== MAT.LAND && mat[ci] !== MAT.SAND) continue;
-    if (rd < 14 || slopeAt(ix, iy) > 4) continue;
+    if (mat[ci] !== MAT.LAND && (mat[ci] !== MAT.SAND || def.f1)) continue;
+    if (rd < (def.f1 ? 24 : 14) || slopeAt(ix, iy) > 4) continue;
     if (th.fields) { const f = fieldAt(x, y, seed); if (f && !f.edge) continue; }
     const near = rd < 90;
     const dens = th.treeDensity * (near ? 0.55 : 0.12) * (0.4 + forestF(x, y));

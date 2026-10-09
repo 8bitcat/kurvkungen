@@ -191,6 +191,86 @@ for (const id of Object.keys(TRACKS)) {
   const t = TRACKS[id];
   TRACKS[id + '_n'] = { ...t, id: id + '_n', base: t.base || id, night: true };
 }
+// ---------- Grand Prix-banorna: större, långa raksträckor, depåfil vid start/mål ----------
+// pit: depåfilen ligger på bortre sidan av start-/målrakan (från s0 före linjen till s1 efter).
+export const GP_TRACKS = {
+  kungsringen: {
+    id: 'kungsringen', name: 'Kungsringen', theme: 'sjo', size: [2600, 2600], seed: 113, hw: 30, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1150, 2280, 20], [1800, 2280, 20], [1930, 2215, 20], [2060, 2260, 20], [2290, 2120, 22], [2370, 1800, 24],
+      [2340, 1380, 26], [2220, 1150, 26], [1980, 1060, 26], [1790, 1120, 26], [1420, 1060, 24], [1050, 1000, 22],
+      [900, 930, 22], [770, 990, 22], [610, 920, 22], [330, 900, 22], [250, 1250, 22], [270, 1750, 22], [360, 2120, 22], [560, 2270, 20],
+    ],
+    lakes: [{ x: 1300, y: 1640, rx: 520, ry: 300, rot: 0.1 }], rivers: [],
+  },
+  okenringen: {
+    id: 'okenringen', name: 'Ökenringen', theme: 'okn', size: [2600, 2600], seed: 127, hw: 30, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1100, 2300, 18], [1720, 2300, 18], [1880, 2200, 18], [1830, 1980, 18], [1980, 1800, 18], [2350, 1760, 20],
+      [2420, 1560, 20], [2200, 1420, 22], [1980, 1300, 24], [2080, 1080, 24], [1880, 900, 24], [2080, 680, 24],
+      [1900, 420, 22], [1560, 420, 20], [1380, 640, 20], [1150, 520, 20], [880, 620, 20], [940, 960, 20],
+      [700, 1180, 18], [420, 1100, 18], [300, 1450, 18], [460, 1820, 18], [320, 2100, 18], [520, 2300, 18],
+    ],
+    lakes: [], rivers: [{ w: 56, pts: [[-60, 1600], [600, 1560], [1200, 1300], [1700, 1150], [2700, 1200]] }],
+  },
+  hamnslingan: {
+    id: 'hamnslingan', name: 'Hamnslingan', theme: 'stad', size: [2600, 2600], seed: 131, hw: 28, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1150, 2300, 10], [1800, 2300, 10], [2000, 2230, 10], [2040, 1980, 10], [2300, 1880, 10], [2340, 1560, 10],
+      [2080, 1420, 10], [2100, 1080, 10], [2360, 940, 10], [2320, 560, 10], [2050, 420, 10], [1700, 400, 10],
+      [1300, 400, 10], [1180, 640, 10], [1420, 820, 10], [1280, 1060, 10], [900, 1000, 10], [700, 800, 10],
+      [420, 820, 10], [330, 1200, 10], [560, 1450, 10], [380, 1750, 10], [300, 2100, 10], [520, 2290, 10],
+    ],
+    lakes: [{ x: 1300, y: 120, rx: 1200, ry: 170, rot: 0 }], rivers: [{ w: 50, pts: [[-60, 1280], [700, 1220], [1500, 1280], [2700, 1250]] }],
+  },
+  fjallringen: {
+    id: 'fjallringen', name: 'Fjällringen', theme: 'fjall', size: [2600, 2600], seed: 139, hw: 30, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1150, 2300, 16], [1720, 2300, 16], [1850, 2200, 12], [1950, 2000, 22], [2050, 1750, 32], [2150, 1300, 38],
+      [2200, 900, 40], [2050, 680, 40], [2150, 460, 38], [1850, 330, 34], [1550, 480, 30], [1500, 760, 28],
+      [1250, 900, 26], [1000, 760, 26], [700, 820, 26], [480, 1050, 24], [560, 1400, 22], [380, 1700, 20],
+      [420, 2000, 18], [330, 2150, 17], [450, 2260, 16], [560, 2230, 16], [640, 2300, 16],
+    ],
+    lakes: [{ x: 1300, y: 1550, rx: 380, ry: 260, rot: -0.3 }], rivers: [],
+  },
+  hostringen: {
+    id: 'hostringen', name: 'Höstringen', theme: 'host', size: [2600, 2600], seed: 149, hw: 30, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1150, 2300, 18], [1750, 2300, 18], [2050, 2180, 18], [2200, 1950, 20], [2080, 1780, 20], [2230, 1620, 20],
+      [2100, 1460, 20], [2240, 1280, 22], [2330, 900, 22], [2250, 600, 22], [1950, 450, 22], [1600, 560, 22],
+      [1300, 400, 20], [900, 450, 20], [700, 700, 20], [900, 950, 20], [800, 1250, 20], [450, 1300, 18],
+      [300, 1650, 18], [450, 2000, 18], [380, 2200, 18], [580, 2300, 18],
+    ],
+    lakes: [{ x: 1500, y: 1500, rx: 300, ry: 220, rot: 0.2 }], rivers: [],
+  },
+  palmringen: {
+    id: 'palmringen', name: 'Palmringen', theme: 'tropik', size: [2600, 2600], seed: 151, hw: 30, f1: true, pit: { s0: -620, s1: 560 },
+    points: [
+      [1150, 2200, 8], [1800, 2200, 8], [2050, 2080, 8], [2150, 1800, 10], [2300, 1500, 10], [2280, 1100, 12],
+      [2100, 850, 12], [2250, 560, 10], [1950, 400, 10], [1500, 450, 10], [1100, 420, 10], [800, 520, 12],
+      [600, 400, 12], [380, 560, 12], [450, 900, 12], [700, 1100, 12], [520, 1400, 10], [350, 1700, 10],
+      [420, 2000, 8], [620, 2180, 8],
+    ],
+    island: { x: 1300, y: 1300, rx: 1240, ry: 1220 },
+    lakes: [{ x: 1350, y: 1400, rx: 380, ry: 300, rot: 0.25 }], rivers: [{ w: 70, pts: [[1350, 1400], [1150, 950], [1000, 600], [900, 100], [900, -100]] }],
+  },
+};
+// skala upp GP-banorna till en 3000×3000-värld
+const GPK = 1.15;
+for (const id of Object.keys(GP_TRACKS)) {
+  const d = GP_TRACKS[id];
+  d.size = [3000, 3000];
+  d.points = d.points.map(([x, y, z, o]) => (o ? [x * GPK, y * GPK, z, o] : [x * GPK, y * GPK, z]));
+  d.lakes = (d.lakes || []).map((l) => ({ ...l, x: l.x * GPK, y: l.y * GPK, rx: l.rx * GPK, ry: l.ry * GPK }));
+  d.rivers = (d.rivers || []).map((r) => ({ ...r, w: r.w, pts: r.pts.map(([x, y]) => [x * GPK, y * GPK]) }));
+  if (d.island) d.island = { x: d.island.x * GPK, y: d.island.y * GPK, rx: d.island.rx * GPK, ry: d.island.ry * GPK };
+  d.pit = { s0: -480, s1: 440 };
+}
+for (const id of Object.keys(GP_TRACKS)) {
+  TRACKS[id] = GP_TRACKS[id];
+  TRACKS[id + '_n'] = { ...GP_TRACKS[id], id: id + '_n', base: id, night: true };
+}
+export const GP_ORDER = ['kungsringen', 'okenringen', 'hamnslingan', 'fjallringen', 'hostringen', 'palmringen'];
 export const BASE_TRACKS = ['sjoviken', 'kanjonen', 'fjallet', 'hostgarden', 'hamnstaden', 'palmon', 'vulkanen', 'manbasen'];
 export const TRACK_ORDER = BASE_TRACKS.flatMap((b) => [b, b + '_r', b + '_n', b + '_r_n']);
 export const trackName = (id) => {

@@ -125,7 +125,9 @@ export function buildTrack(def) {
     const mid = Math.round((i0 + i1) / 2), len = 20;
     for (let k = 0; k < len; k++) { const i = (mid - len + k + n) % n; Z[i] += o.jump * (k + 1) / len; flags[i] |= 8; }
   }
-  return { n, L: L0, sp, X, Y, Z, ZB, TX, TY, NX, NY, A, K, KS, HW: HWs, SEG, flags };
+  const T = { n, L: L0, sp, X, Y, Z, ZB, TX, TY, NX, NY, A, K, KS, HW: HWs, SEG, flags };
+  T.pit = buildPit(T, def);
+  return T;
 }
 
 // Närmaste punkt på mittlinjen nära index `hint`. Skriver i `out` (återanvänds).
@@ -164,5 +166,31 @@ export function nearestGlobal(T, x, y, out) {
 }
 
 export const wrapS = (T, s) => ((s % T.L) + T.L) % T.L;
+
+// ---------- depåfilen ----------
+// Ligger på bortre sidan av start/mål. off(s) = sidoavstånd från mittlinjen till depåfilens mitt.
+export const PIT = { ramp: 170, gap: 26, hw: 15, boxS0: -236, boxStep: 34, boxes: 11 };
+export function buildPit(T, def) {
+  if (!def.pit) return null;
+  const side = T.NX[0] + T.NY[0] < 0 ? 1 : -1;
+  const hw = T.HW[0];
+  const P = { s0: def.pit.s0, s1: def.pit.s1, side, hw: PIT.hw, mid: hw + PIT.gap, wall: hw + 8, ramp: PIT.ramp };
+  P.boxS = Array.from({ length: PIT.boxes }, (_, k) => PIT.boxS0 + k * PIT.boxStep);
+  P.bld0 = P.mid + P.hw + 6; P.bld1 = P.bld0 + 30;
+  return P;
+}
+// s relativt start/mål (−L/2..L/2)
+export const relS = (T, s) => { let r = wrapS(T, s); if (r > T.L / 2) r -= T.L; return r; };
+// depåfilens mittlinje (sidoavstånd med tecken = side) vid s, eller null utanför
+export function pitOff(T, s) {
+  const P = T.pit; if (!P) return null;
+  const r = relS(T, s);
+  if (r < P.s0 || r > P.s1) return null;
+  const a = Math.min(1, (r - P.s0) / P.ramp), b = Math.min(1, (P.s1 - r) / P.ramp);
+  const t = Math.min(a, b), e = t * t * (3 - 2 * t);
+  return P.side * ((T.HW[0] - 8) + (P.mid - (T.HW[0] - 8)) * e);
+}
+// raka delen av depån (mellan inramp och utramp)
+export function pitStraight(T, s) { const P = T.pit; if (!P) return false; const r = relS(T, s); return r > P.s0 + P.ramp && r < P.s1 - P.ramp; }
 export const idxAt = (T, s) => { let i = Math.round(wrapS(T, s) / T.sp); return i >= T.n ? i - T.n : i; };
 export { wrapA };

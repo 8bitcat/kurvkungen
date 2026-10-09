@@ -1,5 +1,16 @@
 # Ändringar
 
+## 0.4.0 – 2026-10-09
+- Nytt spelläge: Grand Prix. Formel 1 utan vapen med elva stall i dagens färger (egna namn), 22 bilar på startgridden.
+- Sex nya, större banor med långa raksträckor, stora svepande kurvor, curbs, grusfällor, depå med garage i stallens färger.
+- Däckstrategi: mjuka, medium och hårda däck som slits och till slut tappar greppet. Regeln om två blandningar (+20 s annars).
+- Depåstopp: boxa med B, bilen kör själv in, fartbegränsare i depån, välj nästa däck med 1/2/3.
+- Krockar kan skada eller slå av framvingen och ge punka – stopptiden byggs av skadorna (däck, ny nos, punka).
+- Slipstream bakom bilen framför, smutsig luft i kurvorna och DRS-zoner (inom en sekund vid mätpunkten).
+- Kval på tre varv (bästa varvet ger startrutan), fem röda startljus, tidtabell, däck- och skadepanel.
+- Säsong med sex lopp, poäng 25-18-15-12-10-8-6-4-2-1, förar- och konstruktörsställning, nattlopp i Hamnslingan.
+- Esc tar dig nu ur pausmenyn igen (förut pausades spelet direkt om).
+
 ## 0.3.0 – 2026-10-06
 - Spela online: skapa ett rum och dela den fyrbokstäviga koden, kompisarna går med från sina egna datorer eller mobiler.
 - Värden väljer bana, riktning, dag/natt, antal varv och hur många datorbilar som fyller ut fältet. Alla kör sina egna bilar från garaget.

@@ -78,6 +78,8 @@ export function sfx(name, vol = 1) {
     case 'moose': tone(t, 0.35, 75, { type: 'sine', g: 0.9 * v, f2: 28 }); noise(t, 0.35, { f: 900, f2: 120, type: 'lowpass', g: 0.8 * v }); noise(t + 0.03, 0.2, { f: 1600, q: 0.8, g: 0.4 * v }); break;
     case 'thud': noise(t, 0.12, { f: 260, type: 'lowpass', g: 0.5 * v }); break;
     case 'fell': noise(t, 0.06, { f: 3000, type: 'highpass', g: 0.4 * v }); tone(t, 0.2, 260, { type: 'triangle', g: 0.3 * v, f2: 80 }); noise(t + 0.05, 0.5, { f: 2200, q: 0.5, g: 0.15 * v }); break;
+    case 'airgun': for (let k = 0; k < 4; k++) noise(t + k * 0.11 + Math.random() * 0.03, 0.08, { f: 3500, q: 1.5, g: 0.35 * v }); break;
+    case 'light': tone(t, 0.12, 330, { type: 'square', g: 0.14 * v }); break;
     case 'horn': tone(t, 0.38, 440, { type: 'square', g: 0.14 * v }); tone(t, 0.38, 554, { type: 'square', g: 0.11 * v }); break;
   }
 }
@@ -98,13 +100,13 @@ class Engine {
     this.ng = ac.createGain(); this.ng.gain.value = 0;
     this.ns.connect(this.nf); this.nf.connect(this.ng); this.ng.connect(sfxBus); this.ns.start();
   }
-  set(speedFrac, throttle, slip, nitro, vol = 1) {
+  set(speedFrac, throttle, slip, nitro, vol = 1, f1 = false) {
     const t = ac.currentTime;
-    const gears = [0, 0.2, 0.38, 0.56, 0.74, 0.92, 2];
+    const gears = f1 ? [0, 0.16, 0.28, 0.4, 0.52, 0.64, 0.76, 0.88, 2] : [0, 0.2, 0.38, 0.56, 0.74, 0.92, 2];
     let gI = 0; while (speedFrac > gears[gI + 1]) gI++;
     const within = (speedFrac - gears[gI]) / (gears[gI + 1] - gears[gI]);
     const rpm = Math.min(1.15, 0.22 + within * 0.8 + (throttle ? 0.08 : 0));
-    const f = 42 + rpm * 120 + gI * 6 + (nitro ? 25 : 0);
+    const f = f1 ? 90 + rpm * 300 + gI * 8 : 42 + rpm * 120 + gI * 6 + (nitro ? 25 : 0);
     this.o1.frequency.setTargetAtTime(f, t, 0.04);
     this.o2.frequency.setTargetAtTime(f * 0.501, t, 0.04);
     this.f.frequency.setTargetAtTime(500 + rpm * 1600 + (throttle ? 600 : 0), t, 0.05);

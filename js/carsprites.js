@@ -45,6 +45,26 @@ const wheels = (xf, xr, yw, r, w, rr = r, wr = w) => [
 
 // ext: [xmin, xmax, halvbredd, höjd] för spritens storlek; sp: [bak-x, takhöjd] för spoiler; fr: front-x för rambock
 export const MODELS = {
+  f1: { // modern formel 1-bil: lång nos, vingar, sidolådor, halo
+    len: 24, wid: 10, ext: [-12.8, 12.9, 5.1, 6.9], sp: null, fr: null, stripe: 'f1', wing: [2, 3, 4, 5], parts: () => [
+      box(-9.6, 7.6, -2.7, 2.7, 0.4, 0.9, 'black'),
+      box(4.0, 12.2, -0.9, 0.9, 1.0, 2.5, 'paint', { t: 0.4, f: 2.2, fx: 4, fz: 1 }),
+      box(10.2, 12.8, -4.2, 4.2, 0.5, 1.0, 'paint', { f: 0.3 }), box(10.0, 11.0, -4.0, 4.0, 1.0, 1.6, 'accent'),
+      box(10.0, 12.8, 4.0, 4.3, 0.5, 2.0, 'paint2'), box(10.0, 12.8, -4.3, -4.0, 0.5, 2.0, 'paint2'),
+      box(-3.2, 4.4, -1.4, 1.4, 1.0, 3.7, 'paint', { t: 0.7, f: 0.6 }),
+      box(-6.4, 1.8, -3.1, 3.1, 1.0, 3.4, 'paint', { t: 1.1, v: 0.9, f: 1.2, fx: 1.4, fz: 1, r: 2.8, rx: 1, rz: 0.55 }),
+      box(-9.2, -1.4, -0.9, 0.9, 3.2, 5.2, 'paint', { f: 1.6, fx: 1, fz: 1.2, r: 3.6, rx: 1, rz: 0.6 }),
+      box(-2.4, -0.8, -0.7, 0.7, 3.7, 5.8, 'paint2', { f: 0.6 }),
+      box(-9.4, -3.4, -0.12, 0.12, 4.6, 6.0, 'paint2', { r: 2.2, rx: 1, rz: 0.8 }),
+      box(0.2, 2.6, -1.25, 1.25, 4.4, 4.8, 'black'), box(2.2, 2.6, -0.2, 0.2, 3.7, 4.8, 'black'),
+      ell(-0.3, 0, 4.2, 1.0, 0.85, 0.85, 'helmet'),
+      box(-12.4, -10.6, -3.7, 3.7, 5.2, 6.0, 'paint'), box(-11.2, -10.4, -3.6, 3.6, 6.0, 6.6, 'accent'),
+      box(-12.6, -10.2, 3.6, 3.9, 2.2, 6.8, 'paint2'), box(-12.6, -10.2, -3.9, -3.6, 2.2, 6.8, 'paint2'),
+      box(-11.4, -10.8, -0.25, 0.25, 3.0, 5.2, 'black'),
+      box(5.6, 8.2, -3.0, 3.0, 2.0, 2.3, 'black'), box(-8.6, -6.4, -2.8, 2.8, 2.0, 2.3, 'black'),
+      ...wheels(7.0, -7.6, 3.8, 2.05, 2.3, 2.35, 2.9),
+    ],
+  },
   bubblan: {
     len: 15, wid: 8.8, ext: [-8, 8.2, 4.6, 8.5], sp: [-7.2, 6.2], fr: 7.8, stripe: 'twin', parts: () => [
       box(-7.4, 7.6, -4.4, 4.4, 1.3, 4.5, 'paint', { t: 1.4, v: 2.0, f: 1.6, fx: 1.4, fz: 1, r: 1.2, b: 0.8, s: 0.6 }),
@@ -308,6 +328,11 @@ function paintColor(M, look, lp, n) {
     if (k === 'roof' && nz > 0.5 && Math.abs(lp[1]) < 1.1) return pal.stripe;
     if (k === 'side' && nz < 0.3 && lp[2] > 3.6 && lp[2] < 4.6) return pal.stripe;
     if (k === 'formula' && Math.abs(lp[1]) < 0.7 && nz > 0.3) return pal.stripe;
+    if (k === 'f1') {
+      if (nz > 0.45 && Math.abs(lp[1]) < 0.5 && lp[0] > -9) return pal.stripe;
+      if (Math.abs(n[1]) > 0.55 && lp[2] < 1.5) return pal.paint2;
+      if (nz > 0.45 && lp[0] > 9.6) return pal.paint2;
+    }
     if (k === 'police' && Math.abs(n[1]) > 0.6 && lp[2] > 2.2 && lp[2] < 4.4 && Math.abs(lp[0]) < 5.6) return 0xf4f4f8;
     if (k === 'flames' || k === 'camo') return paintColor(M, { ...look, pattern: k === 'flames' ? 'flammor' : 'kamo' }, lp, n);
     if (k === 'bus') {
@@ -366,7 +391,8 @@ function matColor(mat, look, lp, n, M, best) {
     case 'rimY': return 0xf2c21c;
     case 'hub': return 0x6a6c78;
     case 'cargo': return 0x5a4632;
-    case 'helmet': return lp[2] > 5.2 ? 0xf6f2ea : look.pal.stripe;
+    case 'helmet': return M.stripe === 'f1' ? (lp[2] > 4.6 ? look.pal.stripe : lp[2] > 4.0 ? 0x1c1a20 : 0xf6f2ea) : lp[2] > 5.2 ? 0xf6f2ea : look.pal.stripe;
+    case 'accent': return look.pal.stripe;
     case 'skirt': return 0x2a2830;
     case 'gun': return mul(look.pal.paint, 0.55);
     case 'track': return ((Math.floor(lp[0] * 0.9) & 1) && n[2] > 0.5) ? 0x3a3840 : 0x2a2830;
@@ -384,7 +410,7 @@ export function palette(color, stripe) {
   return { paint: color, paint2: mul(color, 0.82), stripe: stripe ?? (dark ? 0xe8e4dc : 0xf6f2ea) };
 }
 // look: { pal, pattern, spoiler, ramm }
-export const lookKey = (L) => `${L.pal.paint}|${L.pattern || 'rander'}|${L.spoiler ? 1 : 0}|${L.ramm || 0}`;
+export const lookKey = (L) => `${L.pal.paint}|${L.pal.paint2}|${L.pal.stripe}|${L.pattern || 'rander'}|${L.spoiler ? 1 : 0}|${L.ramm || 0}|${L.tyre || 0}|${L.nowing ? 1 : 0}`;
 
 // Spritemått per modell
 export function spriteDims(model, zoom = 1) {
@@ -424,7 +450,8 @@ export { box, cabin, plane, cyl, ell };
 export function renderCar(modelId, look, ang, zoom = 1) {
   if (!look.pal) look = { pal: look };
   const M = MODELS[modelId];
-  const parts = [...M.parts(), ...extraParts(M, look)];
+  // look.nowing: formelbilen har tappat framvingen
+  const parts = [...M.parts().filter((p, i) => !(look.nowing && M.wing && M.wing.includes(i))), ...extraParts(M, look)];
   const { W: SW, H: SH, OX, OY } = spriteDims(modelId, zoom);
   const P = new Pix(SW, SH);
   const c = Math.cos(ang), s = Math.sin(ang);
@@ -453,6 +480,7 @@ export function renderCar(modelId, look, ang, zoom = 1) {
     else if (best.mat === 'tire' || best.mat === 'tireT') {
       I = 0.6 + 0.4 * diff;
       if (best.tread && (best.mat === 'tireT' ? (((best.ang * 5) % 1) + 1) % 1 < 0.45 : hash(Math.floor(best.ang * 4), 0, 3) > 0.5)) col = 0x34323a;
+      if (look.tyre && best.face && best.rr > 0.7 && best.rr < 0.84) { col = look.tyre; I = Math.max(I, 0.95); }
     }
     let out = shade(col, I, px, py, 0.35);
     if ((best.mat === 'paint' || best.mat === 'paint2' || best.mat === 'chrome' || best.mat === 'helmet') && spec > 0.965) out = mix(out, 0xffffff, 0.7);

@@ -1,7 +1,8 @@
 // Målar en terrängruta (TS×TS skärmpixlar) genom att skjuta en iso-stråle per pixel genom
 // höjdkartan. Träff på ovansida = mark/väg/vatten/lövverk, träff på sida = klippvägg, skogskant,
 // brokant. Ljus från vänster uppe, kvantiserat i toner med Bayer-dither, kastade skuggor.
-import { nearest } from './trackgeo.js?v=1';
+import { nearest, pitOff, relS, PIT } from './trackgeo.js?v=1';
+import { TEAMS } from './f1.js?v=1';
 import { vnoise, fbm } from './noise.js?v=1';
 import { fieldAt } from './fields.js?v=1';
 import { hash, bayer, mix, mul, shade, sm } from './pix.js?v=1';
@@ -27,6 +28,27 @@ export function paintTile(Wd, tx, ty) {
   const snow = th.ground === 'snow', desert = th.ground === 'sand';
   const city = th.ground === 'city', ash = th.ground === 'ash', moon = th.ground === 'moon';
   const L = T.L, seed = Wd.seed, B = Wd.B, bid = Wd.bid;
+  const GS = Wd.def.f1 ? 28 : 30, GN = Wd.def.f1 ? 22 : 10;
+  const P = T.pit;
+  // depåfilen: asfalt, linjer, depårutor i stallens färger, fartgränslinjer
+  function pitRoad(x, y, px, py, s, sd, pc) {
+    const rs = relS(T, s), o = sd - pc, ao = Math.abs(o);
+    let c = mul(th.road, 0.92);
+    if (hash(x | 0, y | 0, 5) > 0.93) c = mix(c, 0xffffff, 0.08);
+    if (ao > P.hw - 1.4) return 0xf2f0ea;
+    if (Math.abs(o - 0.5) < 0.6 && (rs % 10 + 10) % 10 < 5) c = 0xd8d4cc;
+    for (const lim of [P.s0 + P.ramp, P.s1 - P.ramp]) if (Math.abs(rs - lim) < 1.6) return ((Math.floor(rs / 1.6) + Math.floor(o / 1.6)) & 1) ? 0x1c1a20 : 0xf2f0ea;
+    const k = Math.round((rs - P.boxS[0]) / PIT.boxStep);
+    if (k >= 0 && k < P.boxS.length && o > 1.5) {
+      const ds = rs - P.boxS[k];
+      if (Math.abs(ds) < 12) {
+        const col = TEAMS[k] ? TEAMS[k].c1 : 0xf2f0ea;
+        if (Math.abs(ds) > 10.6 || o > P.hw - 2.6 || o < 2.6) return col === 0x111114 ? 0xc9a24a : col;
+        c = mix(c, col, 0.12);
+      }
+    }
+    return c;
+  }
   const ROOF = [0x6a6a72, 0x5a5652, 0x7a7068, 0x4a4a52, 0x8a8478, 0x5e6266];
   const WALL = [0xa0523a, 0xc0bcb2, 0x6a86a6, 0xd8b860, 0xe0dcd4, 0x8a6a5a];
   const HROOF = [0x3a3440, 0xa83a2a, 0x5a4a3a];
@@ -115,12 +137,13 @@ export function paintTile(Wd, tx, ty) {
       if (gr > 0.93) c = mix(c, 0xffffff, 0.09); else if (gr < 0.07) c = mul(c, 0.9);
       if (Math.abs(ad - hw * 0.45) < 4.5) c = mul(c, 0.965);
       if (onDeck && (s % 22) < 0.9) c = mul(c, 0.8);
-      if (ad < 1.05 && (s % 30) < 15) c = th.line;
+      if (ad < 1.05 && (s % 30) < 15 && !Wd.def.f1) c = th.line;
       else if (ad > hw - 3.4 && ad < hw - 1.9) c = th.edge;
       const K = T.K[i];
-      if (Math.abs(K) > 0.0036 && ad > hw - 4.8) {
+      const f1 = Wd.def.f1;
+      if (Math.abs(K) > (f1 ? 0.0018 : 0.0036) && ad > hw - (f1 && Math.abs(K) > 0.005 ? 5.8 : 4.8)) {
         const inside = (K > 0) === (d < 0);
-        if (inside || Math.abs(K) > 0.0075) c = (Math.floor(s / 6) & 1) ? th.curbR : th.curbW;
+        if (inside || f1 || Math.abs(K) > 0.0075) c = (Math.floor(s / 6) & 1) ? th.curbR : th.curbW;
         if (ad > hw - 0.9) c = mul(c, 0.78);
       }
       if (T.flags[i] & 8) {
@@ -129,10 +152,10 @@ export function paintTile(Wd, tx, ty) {
         if (lip) c = (Math.floor((s + ad * 0.8) / 2.5) & 1) ? 0x1c1a20 : 0xf2c21c;
       }
       if (s < 7) c = ((Math.floor(s / 3.5) + Math.floor((d + 200) / 3.5)) & 1) ? 0x1c1a20 : 0xf4f2ee;
-      else if (s > L - 260) { // startrutor
-        const k = Math.round((L - 26 - s) / 28);
-        if (k >= 0 && k < 8) {
-          const sk = L - 26 - k * 28, dk = (k & 1 ? -1 : 1) * hw * 0.44;
+      else if (s > L - 26 - GN * GS - 20) { // startrutor
+        const k = Math.round((L - 26 - s) / GS);
+        if (k >= 0 && k < GN) {
+          const sk = L - 26 - k * GS, dk = (k & 1 ? -1 : 1) * hw * 0.44;
           const ds = s - sk, dd = d - dk;
           if ((Math.abs(ds) < 0.9 && Math.abs(dd) < 8) || (Math.abs(Math.abs(dd) - 7.4) < 0.7 && ds < 0 && ds > -9)) c = th.edge;
         }
@@ -243,7 +266,11 @@ export function paintTile(Wd, tx, ty) {
               base = th.deck;
             } else if (m === MAT.BUILD) {
               const b = B[bid[hci] - 1];
-              if (b.kind === 'city') {
+              if (b.kind === 'pits') {
+                base = 0x8a8c94;
+                if (hash(x >> 1, y >> 1, 73) > 0.85) base = 0x9c9ea8;
+                if (hash(x | 0, y | 0, 74) > 0.95) base = 0x6a6c74;
+              } else if (b.kind === 'city') {
                 if (zt > b.top + 1.8) { base = 0xa8aab4; if (((px + py) & 1) && hash(px, py, 5) > 0.5) base = 0x8a8c96; }
                 else if (zt > b.top + 0.5) base = 0xc8c4bc;
                 else { base = ROOF[b.style]; if (hash(x | 0, y | 0, 71) > 0.88) base = mul(base, 0.88); if (((x - b.x0) % 12) < 0.6) base = mul(base, 0.9); }
@@ -257,12 +284,25 @@ export function paintTile(Wd, tx, ty) {
             } else {
               const gi = near[(y >> 1) * GW + (x >> 1)];
               const ex = T.X[gi] - x, ey = T.Y[gi] - y;
-              if (ex * ex + ey * ey < (T.HW[gi] + 16) ** 2) {
+              if (ex * ex + ey * ey < (T.HW[gi] + (P ? 90 : 16)) ** 2) {
                 nearest(T, x, y, gi, 2, q);
                 if (q.dist < q.hw + 6.5) base = road(x, y, px, py, q.d, q.s, q.hw, q.i, false);
+                if (P && base < 0) {
+                  const po = pitOff(T, q.s);
+                  if (po !== null) {
+                    const sd = q.d * P.side, pc = po * P.side;
+                    if (Math.abs(sd - pc) < P.hw) base = pitRoad(x, y, px, py, q.s, sd, pc);
+                    else if (sd > q.hw && sd < pc) { base = 0xb8b4ac; if ((Math.floor(relS(T, q.s) / 8) & 1) && hash(x | 0, y | 0, 8) > 0.5) base = 0xaca89f; }
+                    else if (sd >= pc && sd < P.bld0 + 2) base = 0xc4c0b8;
+                  }
+                }
               }
               if (base < 0) {
-                if (m === MAT.SAND) {
+                if (m === MAT.SAND && Wd.def.f1) {
+                  const g = hash(x | 0, y | 0, 20);
+                  base = g > 0.72 ? 0xe2d4b4 : g < 0.22 ? 0x9e8c6a : 0xc8b48c;
+                  if (hash(x >> 1, y >> 1, 21) > 0.9) base = 0x8a7a5c;
+                } else if (m === MAT.SAND) {
                   base = hh < 1.3 ? th.sand2 : th.sand;
                   const r = Math.sin((x * 0.4 + y * 0.3) * 0.5 + vnoise(x / 20, y / 20, 19) * 4);
                   if (r > 0.86) base = mix(base, 0xffffff, 0.2);
@@ -343,7 +383,22 @@ export function paintTile(Wd, tx, ty) {
               const b = B[bid[hci] - 1];
               const zr = z - b.base;
               const along = Math.abs(nx) > Math.abs(ny) ? y - b.cy : x - b.cx;
-              if (b.kind === 'city') {
+              if (b.kind === 'pits') {
+                nearest(T, x, y, near[(y >> 1) * GW + (x >> 1)], 3, q);
+                const rs = relS(T, q.s), bk = Math.round((rs - P.boxS[0]) / PIT.boxStep), team = TEAMS[bk];
+                base = 0xd8d4cc;
+                if (team && Math.abs(rs - P.boxS[bk]) < 13) {
+                  if (zr < 8.6) {
+                    base = 0x2a2830;
+                    if (zr < 2.4 && hash(cx, Math.floor(z * 2), 75) > 0.6) base = 0x141218;
+                    if (zr > 3 && zr < 6 && hash(cx >> 1, 1, bk) > 0.7) base = mix(team.c1, 0x2a2830, 0.4);
+                    if (zr > 7.6) base = team.c1;
+                  } else if (zr > 10 && zr < 13) base = (Math.floor(cx / 2) + bk) % 7 === 0 ? 0xf2f0ea : team.c1;
+                }
+                if (z > b.top - 1) base = 0xf2f0ea;
+                if (zr < 0.8) base = 0x9a968e;
+                k = 0.85 + (nx * LX + ny * LY) * 0.35;
+              } else if (b.kind === 'city') {
                 base = WALL[b.style];
                 const fl = Math.floor(zr / 7), zz = zr - fl * 7, col = ((cx % 6) + 6) % 6;
                 if (b.style === 0 && (Math.floor(z * 2) & 1)) base = mul(base, 0.92);

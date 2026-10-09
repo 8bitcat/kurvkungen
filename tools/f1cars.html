@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>f1-bilar</title>
+<style>body{margin:0;background:#5e9e30;color:#fff;font:12px monospace} canvas{image-rendering:pixelated;display:block}</style></head>
+<body><div id="info">…</div>
+<script type="module">
+import { renderCar, renderShadow, ANGLES } from '../js/carsprites.js?v=1';
+import { TEAMS, COMPOUNDS, COMPOUND_ORDER } from '../js/f1.js?v=1';
+const P = new URLSearchParams(location.search);
+const z = +(P.get('z') || 3), step = +(P.get('step') || 8), zoom = +(P.get('zoom') || 1);
+const cols = ANGLES / step, CW = 64 * zoom, CH = 44 * zoom;
+const cv = document.createElement('canvas');
+cv.width = cols * CW; cv.height = TEAMS.length * CH;
+cv.style.width = cv.width * z + 'px'; cv.style.height = cv.height * z + 'px';
+document.body.appendChild(cv);
+const ctx = cv.getContext('2d');
+ctx.fillStyle = '#9a9890'; ctx.fillRect(0, 0, cv.width, cv.height);
+TEAMS.forEach((t, r) => {
+  const look = { pal: { paint: t.c1, paint2: t.c2, stripe: t.c3 }, tyre: COMPOUNDS[COMPOUND_ORDER[r % 3]].color };
+  for (let k = 0; k < cols; k++) {
+    const a = (k * step / ANGLES) * Math.PI * 2;
+    const sp = renderCar('f1', look, a, zoom);
+    const cx = k * CW + CW / 2, cy = r * CH + CH * 0.7;
+    if (zoom === 1) { const sh = renderShadow('f1', a); ctx.drawImage(sh, cx - sh.ox, cy - sh.oy); }
+    ctx.drawImage(sp, cx - sp.ox, cy - sp.oy);
+  }
+});
+document.getElementById('info').textContent = TEAMS.map((t) => t.name).join(' · ');
+window.done = true;
+</script></body></html>

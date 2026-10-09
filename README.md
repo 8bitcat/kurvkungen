@@ -12,6 +12,11 @@ node tools/serve.mjs        # http://localhost:8803/
 Tangentbord: pilar/WASD kör, mellanslag skjuter, Z bakvapen, Shift nitro, T tuta, R tillbaka på banan, Esc paus, M musik.
 Handkontroll: RT gas, LT broms, X skjut, Y bakvapen, RB/klick i spak nitro. Mobil: liggande, autogas, knappar på skärmen.
 
+Grand Prix (formel 1, inga vapen): mellanslag = DRS i zonerna, B = boxa (bilen kör själv in i depån), 1/2/3 = nästa däck
+(mjuka/medium/hårda). Däcken slits och tappar grepp, krockar ger skadad eller avslagen framvinge och punka – stopptiden
+i depån byggs av skadorna. Slipstream bakom en annan bil, smutsig luft i kurvorna. Minst två blandningar från 3 varv.
+Säsong med sex lopp, förar- och konstruktörsmästerskap. Start direkt: `?gp=kungsringen&laps=8&quali=1&tyre=soft&team=papaya`.
+
 Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller gå med med rumskoden. Måste köras från en publicerad adress för att kompisar på andra datorer ska nå spelet.
 
 ## Hur det är byggt
@@ -40,3 +45,9 @@ Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller g
 | `node tools/mp.mjs 15` | multiplayer med två webbläsare via PeerJS |
 | `node tools/djur.mjs sjoviken 5` | många djur framför bilen, skärmdumpar |
 | `tools/djur.html` | alla djur i alla poser |
+| `node tools/gprace.mjs kungsringen 8 4 3` | Grand Prix med autopilot: däck, depå, DRS, skador, resultat och kvalkalibrering |
+| `node tools/gpui.mjs` | Grand Prix-menyerna, kval, lopp, resultat och säsong |
+| `node tools/gpdebug.mjs kungsringen` | varje bils försök att köra in i depån |
+| `node tools/gpdamage.mjs` | framvingen lossnar + punka → depåstopp med skadetid |
+| `node tools/gpcheck.mjs` | GP-banornas längd, radier och raksträckor |
+| `tools/f1cars.html` | alla stallens bilar |

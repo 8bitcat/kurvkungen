@@ -4,7 +4,8 @@ import { TRACKS, THEMES } from './tracks.js?v=1';
 import { buildTrack, nearest } from './trackgeo.js?v=1';
 import { TS, isoX, isoY } from './iso.js?v=1';
 import { MAT, DECK } from './world-gen.js?v=1';
-import { treeSprite, TREE_RADIUS, railSprite, gantrySprite, standSprite, CONE, TIRES, STUMP } from './props.js?v=1';
+import { treeSprite, TREE_RADIUS, railSprite, gantrySprite, standSprite, wallSprite, CONE, TIRES, STUMP } from './props.js?v=1';
+import { relS, idxAt } from './trackgeo.js?v=1';
 import { css } from './pix.js?v=1';
 
 let worker = null, genCounter = 0, current = null;
@@ -121,7 +122,9 @@ export class World {
       const step = th.lamps ? 60 : 110;
       for (let i = 20, k = 0; i < n; i += step, k++) {
         if (T.flags[i] & 1) continue;
-        const side = k & 1 ? 1 : -1, d = side * (T.HW[i] + 10);
+        const side = k & 1 ? 1 : -1, d = side * (T.HW[i] + (this.def.f1 ? 62 : 10));
+        // inte i depåfilen
+        if (T.pit && side === T.pit.side) { const rs = relS(T, i * T.sp); if (rs > T.pit.s0 - 80 && rs < T.pit.s1 + 80) continue; }
         const x = T.X[i] + T.NX[i] * d, y = T.Y[i] + T.NY[i] * d;
         const g = this.groundAt(x, y, i);
         if (Math.abs(g - T.Z[i]) > 3 || this.gm === MAT.WATER) continue;
@@ -135,17 +138,18 @@ export class World {
     for (let i = 0; i < n; i++) {
       const K = T.K[i], aK = Math.abs(K);
       if (T.flags[i] & 1) continue;
-      if (aK > 0.0062 && i - last >= 14) {
+      if (aK > 0.0062 && i - last >= 14 && !this.def.f1) {
         last = i;
         const d = -Math.sign(K) * (T.HW[i] + 2.5);
         const x = T.X[i] + T.NX[i] * d, y = T.Y[i] + T.NY[i] * d;
         this._addProp({ x, y, x0: x, y0: y, z: T.Z[i], spr: CONE, r: 2.2, kind: 'kon', dyn: true, vx: 0, vy: 0, down: false });
       }
     }
-    for (let i = 0; i < n; i += 5) {
+    const f1 = this.def.f1;
+    for (let i = 0; i < n; i += f1 ? 4 : 5) {
       const K = T.KS[i];
-      if (Math.abs(K) < 0.0058 || (T.flags[i] & 7)) continue;
-      const d = Math.sign(K) * (T.HW[i] + 15);
+      if (Math.abs(K) < (f1 ? 0.0034 : 0.0058) || (T.flags[i] & 7)) continue;
+      const d = Math.sign(K) * (T.HW[i] + (f1 ? 52 : 15));
       const x = T.X[i] + T.NX[i] * d, y = T.Y[i] + T.NY[i] * d;
       const g = this.groundAt(x, y, i);
       if (Math.abs(g - T.Z[i]) > 3 || this.gm === MAT.WATER) continue;
@@ -169,10 +173,37 @@ export class World {
     this._addProp({ x: lx, y: ly, z: T.Z[0], spr: null, r: 2.5, kind: 'stolpe' });
     this._addProp({ x: rx, y: ry, z: T.Z[0], spr: null, r: 2.5, kind: 'stolpe' });
     const far = T.NX[0] + T.NY[0] < 0 ? 1 : -1; // vänster (+d) ligger bortåt?
+    // depåmuren
+    if (T.pit) {
+      const P = T.pit;
+      for (let s = P.s0 + P.ramp + 4; s < P.s1 - P.ramp - 4; s += 8) {
+        const i = idxAt(T, s), j = idxAt(T, s + 8), w = P.side * P.wall;
+        const ax = T.X[i] + T.NX[i] * w, ay = T.Y[i] + T.NY[i] * w, bx = T.X[j] + T.NX[j] * w, by = T.Y[j] + T.NY[j] * w;
+        this._addProp({ x: (ax + bx) / 2, y: (ay + by) / 2, z: T.Z[i], spr: wallSprite(ax, ay, T.Z[i], bx, by, T.Z[j]), r: 0, kind: 'mur' });
+      }
+    }
+    // fler läktare längs raksträckorna (bortre sidan)
+    if (f1) {
+      let placed = 0;
+      for (let i = 0; i < n && placed < 5; i += 6) {
+        const rs = relS(T, i * T.sp);
+        if (T.pit && rs > T.pit.s0 - 150 && rs < T.pit.s1 + 150) continue;
+        let straight = true;
+        for (let o = -20; o <= 20; o += 5) if (Math.abs(T.KS[(i + o + n) % n]) > 0.0012) straight = false;
+        if (!straight || (T.flags[i] & 1)) continue;
+        const fs = T.NX[i] + T.NY[i] < 0 ? 1 : -1;
+        const sx = T.X[i] + T.NX[i] * fs * (T.HW[i] + 30), sy = T.Y[i] + T.NY[i] * fs * (T.HW[i] + 30);
+        const g = this.groundAt(sx, sy, i);
+        if (Math.abs(g - T.Z[i]) > 3 || this.gm === MAT.WATER) continue;
+        this._addProp({ x: sx, y: sy, z: g, spr: standSprite(T.A[i], 60, -fs), r: 0, kind: 'laktare', dbias: -8 });
+        for (let k = -3; k <= 3; k++) { const j = (i + k * 5 + n) % n; this._addProp({ x: T.X[j] + T.NX[j] * fs * (T.HW[j] + 32), y: T.Y[j] + T.NY[j] * fs * (T.HW[j] + 32), z: g, spr: null, r: 9, kind: 'mur' }); }
+        placed++; i += 300;
+      }
+    }
     const si = Math.round(70 / T.sp);
     const sx = T.X[si] + T.NX[si] * far * (hw + 22), sy = T.Y[si] + T.NY[si] * far * (hw + 22);
     const g = this.groundAt(sx, sy, si);
-    if (Math.abs(g - T.Z[si]) < 4) {
+    if (Math.abs(g - T.Z[si]) < 4 && !T.pit) {
       this._addProp({ x: sx, y: sy, z: g, spr: standSprite(T.A[si], 70, -far), r: 0, kind: 'laktare', dbias: -8 });
       for (let k = -3; k <= 3; k++) {
         const j = (si + k * 5 + n) % n;
