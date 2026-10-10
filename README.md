@@ -17,6 +17,10 @@ Grand Prix (formel 1, inga vapen): mellanslag = DRS i zonerna, B = boxa (bilen k
 i depån byggs av skadorna. Slipstream bakom en annan bil, smutsig luft i kurvorna. Minst två blandningar från 3 varv.
 Säsong med sex lopp, förar- och konstruktörsmästerskap. Start direkt: `?gp=kungsringen&laps=8&quali=1&tyre=soft&team=papaya`.
 
+**Spela:** https://8bitcat.github.io/kurvkungen/
+
+Grand Prix online: värden väljer LÄGE = GRAND PRIX i rummet, alla väljer stall och startdäck, datorn fyller ut till 22 bilar.
+
 Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller gå med med rumskoden. Måste köras från en publicerad adress för att kompisar på andra datorer ska nå spelet.
 
 ## Hur det är byggt
@@ -49,5 +53,7 @@ Online: "Spela online" → skapa rum (värden kör simuleringen, PeerJS) eller g
 | `node tools/gpui.mjs` | Grand Prix-menyerna, kval, lopp, resultat och säsong |
 | `node tools/gpdebug.mjs kungsringen` | varje bils försök att köra in i depån |
 | `node tools/gpdamage.mjs` | framvingen lossnar + punka → depåstopp med skadetid |
+| `node tools/mpgp.mjs` | Grand Prix online med två webbläsare (rum, stall, start, BOX från gästen, resultat) |
+| `node tools/gpbox.mjs` | boxa med tangentbordet och se depåmarkeringen |
 | `node tools/gpcheck.mjs` | GP-banornas längd, radier och raksträckor |
 | `tools/f1cars.html` | alla stallens bilar |

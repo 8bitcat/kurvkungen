@@ -1,8 +1,9 @@
 // Gästens spegel av loppet: tar emot värdens tillståndsbilder, interpolerar bilarna ~0,1 s bakåt
 // i tiden och återskapar effekter (rök, eld, damm, sladdspår, explosioner, blod) lokalt.
-import { nearest } from './trackgeo.js?v=1';
+import { nearest, nearestGlobal } from './trackgeo.js?v=1';
 import { oilSprite, glueSprite, CONE_DOWN } from './props.js?v=1';
-import { ANIM_STATES } from './net.js?v=1';
+import { ANIM_STATES, PIT_PH } from './net.js?v=1';
+const CO = ['soft', 'medium', 'hard'];
 import { SPECIES } from './animals.js?v=1';
 
 const lerpA = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * t; };
@@ -41,10 +42,29 @@ export class Mirror {
       if (k !== this.me) c.inp.gas = f & 4096 ? 1 : 0;
       c.lap = n[8]; c.place = n[9]; c.progress = n[10]; c.ammoF = n[11]; c.ammoR = n[12]; c.nitro = n[13]; c.money = n[14]; c.bestLap = n[15] || 0;
       c.surf = n[16] ? 'grass' : 'road'; c.slip = n[17];
-      nearest(R.T, c.x, c.y, c.si, 12, this.q); c.si = this.q.i; c.dist = this.q.dist; c.hw = this.q.hw; c.d = this.q.d;
+      nearest(R.T, c.x, c.y, c.si, 12, this.q);
+      if (this.q.dist > this.q.hw + 80) nearestGlobal(R.T, c.x, c.y, this.q); // bilen hoppade (återinsatt)
+      c.si = this.q.i; c.dist = this.q.dist; c.hw = this.q.hw; c.d = this.q.d; c.s = (this.q.i + this.q.t) * R.T.sp;
     });
+    if (sb.f1) this.f1(sb);
     if (b !== this.applied) { this.applied = b; this.lists(sb); }
     this.effects(dt);
+  }
+  f1(s) {
+    const R = this.R;
+    R.lights = s.li;
+    s.f1.forEach((f, k) => {
+      const c = R.cars[k];
+      if (!c || !c.tyre) return;
+      c.tyre.c = CO[f[0]] || 'medium'; c.tyre.wear = f[1]; c.pitPhase = PIT_PH[f[2]] || null;
+      const fl = f[3];
+      c.boxing = !!(fl & 1); c.drs = !!(fl & 2); c.drsOk = !!(fl & 4); c.wingLost = !!(fl & 8); c.punct = fl & 16 ? 1 : fl & 32 ? -1 : 0; c.penalty = fl & 64 ? 20 : 0;
+      c.stops = f[4]; c.wing = f[5]; c.nextTyre = CO[f[6]] || 'hard'; c.pitT = f[7];
+      c.used = new Set(CO.filter((_, i) => f[8] & (1 << i))); c.tow = f[9] / 10; c.finishTime = f[10];
+    });
+    const pw = new Map((s.pw || []).map(([k, w]) => [k, w]));
+    R.cars.forEach((c, k) => { c.pitWork = pw.get(k) || null; });
+    R.order = [...R.cars].sort((a, b) => a.place - b.place);
   }
   lists(s) {
     const R = this.R;
@@ -69,6 +89,7 @@ export class Mirror {
       if (c.smokeT > 0 && Math.random() < 0.9) R.fx.smoke(c.x - fx * (back + 2), c.y - fy * (back + 2), c.z + 3, 2, false, 8);
       if (c.wreckT > 0) { if (Math.random() < 0.5) R.fx.smoke(c.x, c.y, c.z + 6, 1, true, 6); }
       else if (c.dmg > 55 && Math.random() < (c.dmg - 50) / 140) R.fx.smoke(c.x + fx * 7, c.y + fy * 7, c.z + 7, 1, c.dmg > 78);
+      if (c.punct && !c.air && Math.hypot(c.vx, c.vy) > 40 && Math.random() < 0.7) { const ox = c.len / 2 - 5, oy = c.punct * (c.wid / 2 - 1); R.fx.sparks(c.x + fx * ox - fy * oy, c.y + fy * ox + fx * oy, c.z + 1, 1, 70); }
       if (c.burnT > 0 && Math.random() < 0.6) R.fx.add('fire', c.x + (Math.random() - 0.5) * c.wid, c.y + (Math.random() - 0.5) * c.wid, c.z + 6, 0, 0, 30, 0.35, 2, -20, 1);
       const sp = Math.hypot(c.vx, c.vy);
       if (!c.air && c.wreckT <= 0) {
@@ -96,6 +117,8 @@ export class Mirror {
       case 'zap': if (b) R.fx.sparks(b.x, b.y, b.z + 5, 16, 140); break;
       case 'cannon': if (a) R.fx.smoke(a.x + Math.cos(a.ang) * a.len * 0.6, a.y + Math.sin(a.ang) * a.len * 0.6, a.z + 6, 6, false, 6); break;
       case 'spike': if (a) R.fx.sparks(a.x, a.y, a.z + 2, 6, 80); break;
+      case 'puncture': if (a) R.fx.sparks(a.x, a.y, a.z + 2, 8, 90); break;
+      case 'wingoff': if (a) { const x = a.x + Math.cos(a.ang) * 12, y = a.y + Math.sin(a.ang) * 12; for (let i = 0; i < 9; i++) { const g = Math.random() * 6.283, s2 = 40 + Math.random() * 90; R.fx.add('debris', x, y, a.z + 2, a.vx * 0.5 + Math.cos(g) * s2, a.vy * 0.5 + Math.sin(g) * s2, 50 + Math.random() * 70, 0.8 + Math.random() * 0.6, 2, 420, 0.5, i % 3 ? a.pal.paint : a.pal.stripe); } R.fx.sparks(x, y, a.z + 2, 10, 120); } break;
     }
   }
   // flygande koner

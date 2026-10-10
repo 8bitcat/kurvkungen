@@ -5,6 +5,7 @@ import { css } from './pix.js?v=1';
 import { FRONT, REAR } from './cars.js?v=1';
 import { input } from './input.js?v=1';
 import { COMPOUNDS, TEAMS } from './f1.js?v=1';
+import { relS, idxAt } from './trackgeo.js?v=1';
 
 export const ordinal = (n) => n + (n === 1 || n === 2 ? ':A' : ':E');
 export const fmtTime = (t) => { if (!(t >= 0)) return '-:--.--'; const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${s.toFixed(2)}`; };
@@ -155,7 +156,13 @@ export class Hud {
       }
     }
     else if (car.pitPhase) drawText(ctx, 'DEPÅ – FARTBEGRÄNSARE', vw / 2, vh * 0.3, { big: true, grad: GRAD.gold, align: 'c' });
-    else if (car.boxing && ((t * 3) | 0) % 2) drawText(ctx, car.punct ? 'PUNKA – BOXA DETTA VARV' : car.wingLost ? 'UTAN FRAMVINGE – BOXA DETTA VARV' : 'BOXA DETTA VARV', vw / 2, vh * 0.3, { big: true, grad: GRAD.fire, align: 'c' });
+    else if (car.boxing) {
+      if (((t * 3) | 0) % 2) drawText(ctx, car.punct ? 'PUNKA – BOXA DETTA VARV' : car.wingLost ? 'UTAN FRAMVINGE – BOXA DETTA VARV' : 'BOXA DETTA VARV', vw / 2, vh * 0.3, { big: true, grad: GRAD.fire, align: 'c' });
+      // hur långt kvar till depåinfarten (bilen är 24 enheter ≈ 5,6 m)
+      const T = R.T, left = ((relS(T, T.pit.s0 - car.s) % T.L) + T.L) % T.L;
+      const txt = left < 260 ? 'DEPÅINFART – HÅLL KVAR, BILEN SVÄNGER IN' : `DEPÅINFART OM ${Math.round(left * 0.233 / 10) * 10} M  (FÖLJ DE GULA PILARNA)`;
+      drawText(ctx, txt, vw / 2, vh * 0.3 + 20, { color: 0xffe080, align: 'c' });
+    }
     if (car.wrongWay() && !car.finished) this.center(ctx, vw, vh * 0.32, 'FEL HÅLL!', GRAD.red, t, true);
     // minikarta nere till vänster
     // (på pekskärm ligger styrknapparna där – tidtabellen och varvet överst räcker)
@@ -165,6 +172,11 @@ export class Hud {
       drawText(ctx, `${lapN}/${R.laps}`, 6, vh - 22, { big: true, scale: 2 });
     }
     // startljus
+    if (time && (R.phase === 'countdown' || R.raceTime < 4)) {
+      this.center(ctx, vw, vh * 0.42, 'KVAL', GRAD.gold, t, false, 3);
+      drawText(ctx, 'DU KÖR ENSAM 3 VARV – BÄSTA VARVET GER DIN STARTRUTA', vw / 2, vh * 0.42 + 32, { color: 0xffffff, align: 'c' });
+      drawText(ctx, 'SEDAN STARTAR LOPPET MOT 21 BILAR. DEPÅN ÖPPNAR I LOPPET.', vw / 2, vh * 0.42 + 42, { color: 0xffe080, align: 'c' });
+    }
     if (R.phase === 'countdown') this.f1Lights(ctx, vw, R.lights, false);
     else if (R.raceTime < 1.2 && !time) { this.f1Lights(ctx, vw, 0, true); this.center(ctx, vw, vh * 0.22, 'KÖR!', GRAD.green, t, false, 3); }
     let y = vh * 0.38;
@@ -274,6 +286,13 @@ export class Hud {
   drawMap(ctx, x, y, t, me) {
     const m = this.map;
     ctx.globalAlpha = 0.85; ctx.drawImage(m.cv, x, y); ctx.globalAlpha = 1;
+    // depåinfarten blinkar när spelaren ska boxa
+    const R = this.R;
+    if (R.f1 && R.T.pit && me && me.boxing && ((t * 4) | 0) % 2) {
+      const i = idxAt(R.T, R.T.pit.s0), px = R.T.X[i], py = R.T.Y[i], pz = R.T.Z[i];
+      const sx = Math.round(isoX(px, py) * m.sc + m.ox) + x, sy = Math.round(isoY(px, py, pz) * m.sc + m.oy) + y;
+      ctx.fillStyle = '#1a1426'; ctx.fillRect(sx - 3, sy - 3, 7, 7); ctx.fillStyle = '#ffd628'; ctx.fillRect(sx - 2, sy - 2, 5, 5);
+    }
     const cars = [...this.R.cars].sort((a) => (a === me ? 1 : -1));
     for (const c of cars) {
       const sx = Math.round(isoX(c.x, c.y) * m.sc + m.ox) + x, sy = Math.round(isoY(c.x, c.y, c.z) * m.sc + m.oy) + y;

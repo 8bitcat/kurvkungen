@@ -89,15 +89,15 @@ function onEvent(type, a, b, c) {
     case 'light': if (!att) sfx('light'); break;
     case 'pitin': if (a === P) hud.say('DEPÅN – FARTBEGRÄNSAREN PÅ', 1.6, GRAD.gold, false); break;
     case 'pitstop': sfx('airgun', v(a) * (a === P ? 1 : 0.6)); break;
-    case 'pitdone': if (a === P) { hud.say(`NYA ${COMPOUNDS[a.tyre.c].name} DÄCK – KÖR!`, 1.8, GRAD.green, false); sfx('go'); } break;
+    case 'pitdone': if (a === P) { hud.say(`NYA ${COMPOUNDS[b || a.tyre.c].name} DÄCK – KÖR!`, 1.8, GRAD.green, false); sfx('go'); } break;
     case 'penalty': if (a === P) hud.say('+20 S: KÖRDE BARA EN DÄCKBLANDNING', 3.5, GRAD.red, false); break;
     case 'puncture':
       sfx('spike', v(a));
-      if (a === P) { hud.say(b === 'blow' ? 'DÄCKET SMÄLLDE!' : 'PUNKA!', 2, GRAD.red); G.cam.shake = 0.2; if (!P.ai && !P.pitPhase) P.boxing = true; }
+      if (a === P) { hud.say(b === 'blow' ? 'DÄCKET SMÄLLDE!' : 'PUNKA!', 2, GRAD.red); G.cam.shake = 0.2; }
       break;
     case 'wingoff':
       sfx('crash', v(a));
-      if (a === P) { hud.say('FRAMVINGEN BORTA!', 2, GRAD.red); G.cam.shake = 0.25; if (!P.ai && !P.pitPhase) P.boxing = true; }
+      if (a === P) { hud.say('FRAMVINGEN BORTA!', 2, GRAD.red); G.cam.shake = 0.25; }
       break;
     case 'wreck':
       sfx('boom', v(a));
@@ -559,7 +559,7 @@ function resultsNext() {
   const res = G.results;
   sfx('ok');
   if (res.gpQuali) { startGPRace(res.cfg.gp, res.grid); return; }
-  if (res.gpRace) { if (res.cfg.gp.season) { G.results = { gpStand: true, final: res.seasonEnd, back: gpBack }; G.state = 'standings'; } else gpBack(); return; }
+  if (res.gpRace) { if (NET.role) { afterRace(); return; } if (res.cfg.gp.season) { G.results = { gpStand: true, final: res.seasonEnd, back: gpBack }; G.state = 'standings'; } else gpBack(); return; }
   if (res.gpStand) { res.back(); return; }
   if (res.standings) { if (res.back) res.back(); else afterRace(); return; }
   if (res.cfg.champ) { G.results = { standings: true, champEnd: res.champEnd, back: res.champEnd ? null : () => { startAttract(); preRace(); } }; if (!res.champEnd && !save.champ) { afterRace(); return; } return; }
@@ -756,8 +756,9 @@ function gpResults() {
   for (const c of order) if (c.bestLap && (!fastest || c.bestLap < fastest.bestLap)) fastest = c;
   const rows = order.map((c, k) => {
     const gap = c.finishTime - lead.finishTime;
-    return { name: c.isPlayer ? 'DU' : c.name.toUpperCase(), code: c.code, team: c.team, time: c.finishTime, gap, down: Math.max(0, Math.floor((R.laps * R.T.L - c.progress) / R.T.L)), best: c.bestLap, stops: c.stops, tyres: [...c.used], pts: F1_POINTS[k] || 0, me: c.isPlayer, pen: c.penalty || 0, fl: c === fastest };
+    return { idx: R.cars.indexOf(c), nm: c.isPlayer ? myName() : c.name.toUpperCase(), name: c.isPlayer ? 'DU' : c.name.toUpperCase(), code: c.code, team: c.team, time: c.finishTime, gap, down: Math.max(0, Math.floor((R.laps * R.T.L - c.progress) / R.T.L)), best: c.bestLap, stops: c.stops, tyres: [...c.used], pts: F1_POINTS[k] || 0, me: c.isPlayer, pen: c.penalty || 0, fl: c === fastest };
   });
+  if (NET.role === 'host') NET.host.broadcast({ t: 'gpres', rows });
   const me = rows.find((r) => r.me), place = rows.indexOf(me) + 1;
   const money = 100 + me.pts * 40;
   save.money += money;
@@ -877,10 +878,10 @@ function drawGPStandings(t) {
 }
 
 // ---------- online ----------
-const NET = { role: null, host: null, client: null, code: '', players: [], lobby: { track: 0, rev: false, night: false, laps: 3, ai: 3 }, mirror: null, pidCar: {}, sendT: 0, snapT: 0, err: '', typed: '', ready: new Set(), inRace: false };
+const NET = { role: null, host: null, client: null, code: '', players: [], lobby: { mode: 'race', track: 0, rev: false, night: false, laps: 3, ai: 3, gpTrack: 0, gpLaps: 5, gpAi: 20 }, mirror: null, pidCar: {}, sendT: 0, snapT: 0, err: '', typed: '', ready: new Set(), inRace: false };
 const NAMES = ['KURV-KALLE', 'SLADD-STINA', 'TURBO-TAGE', 'GAS-GRETA', 'PLÅT-PER', 'NITRO-NORA', 'DÄCK-DANNE', 'KROCK-KAJSA', 'VRÅL-VERA', 'BROMS-BOSSE', 'ÄLG-ELSA', 'MOS-MATTE'];
 const myName = () => save.settings.name || (save.settings.name = NAMES[(Math.random() * NAMES.length) | 0]);
-const NET_EVENTS = new Set(['count', 'go', 'lap', 'finish', 'wreck', 'splash', 'crash', 'bump', 'pick', 'gun', 'missile', 'boom', 'rear', 'nitro', 'oil', 'cone', 'hit', 'rescue', 'cannon', 'laser', 'flame', 'zap', 'spike', 'glue', 'splat', 'animal', 'moose', 'thud', 'fell', 'lava', 'land']);
+const NET_EVENTS = new Set(['count', 'go', 'lap', 'finish', 'wreck', 'splash', 'crash', 'bump', 'pick', 'gun', 'missile', 'boom', 'rear', 'nitro', 'oil', 'cone', 'hit', 'rescue', 'cannon', 'laser', 'flame', 'zap', 'spike', 'glue', 'splat', 'animal', 'moose', 'thud', 'fell', 'lava', 'land', 'light', 'pitin', 'pitstop', 'pitdone', 'penalty', 'puncture', 'wingoff']);
 function ser(R, x) {
   if (x == null || typeof x !== 'object') return x ?? null;
   const ci = R.cars.indexOf(x);
@@ -897,7 +898,7 @@ function onlineMenu() {
     { label: 'TILLBAKA', ok: backToMain },
   ], { w: 240, back: backToMain });
 }
-function myCfg() { const c = playerCarCfg(); return { ...c, name: myName(), isPlayer: false }; }
+function myCfg() { const c = playerCarCfg(), g = gpSave(); return { ...c, name: myName(), isPlayer: false, gp: { team: g.team, seat: g.seat, start: g.start } }; }
 async function hostRoom() {
   G.state = 'loading'; G.msg = 'SKAPAR RUM'; G.loadP = 0.5;
   const H = new Host();
@@ -913,8 +914,11 @@ async function hostRoom() {
   H.onMsg = (pid, m) => {
     if (m.t === 'hello') {
       if (NET.inRace) { H.send(pid, { t: 'busy' }); return; }
+      const pl = { pid, name: String(m.name || 'GÄST').slice(0, 14).toUpperCase(), cfg: m.cfg };
+      const ex = NET.players.findIndex((p) => p.pid === pid);
+      if (ex >= 0) { NET.players[ex] = pl; lobbyBroadcast(); return; } // gästen bytte bil eller stall
       if (NET.players.length >= 8) { H.send(pid, { t: 'full' }); return; }
-      NET.players.push({ pid, name: String(m.name || 'GÄST').slice(0, 14).toUpperCase(), cfg: m.cfg });
+      NET.players.push(pl);
       sfx('pick'); lobbyBroadcast();
     } else if (m.t === 'i') {
       const R = G.race, k = NET.pidCar[pid];
@@ -925,19 +929,54 @@ async function hostRoom() {
     } else if (m.t === 'h') { const R = G.race, c = R && R.cars[NET.pidCar[pid]]; if (c && c.st.horn) R.animals.scare(c.x, c.y, 160); }
     else if (m.t === 'reset') { const R = G.race, c = R && R.cars[NET.pidCar[pid]]; if (c && R.phase === 'race' && c.wreckT <= 0) R.respawn(c); }
     else if (m.t === 'ready') NET.ready.add(pid);
+    else if (m.t === 'box') { const R = G.race, c = R && R.f1 && R.cars[NET.pidCar[pid]]; if (c && c.human && !c.pitPhase && !c.finished) c.boxing = !c.boxing; }
+    else if (m.t === 'tyre') { const R = G.race, c = R && R.f1 && R.cars[NET.pidCar[pid]]; if (c && c.human && COMPOUNDS[m.c]) c.nextTyre = m.c; }
   };
   openLobby();
 }
-const lobbyTrack = () => BASE_TRACKS[NET.lobby.track] + (NET.lobby.rev ? '_r' : '') + (NET.lobby.night ? '_n' : '');
+const lobbyGP = () => NET.lobby.mode === 'gp';
+const lobbyTrack = () => (lobbyGP() ? GP_ORDER[NET.lobby.gpTrack] + (NET.lobby.night ? '_n' : '') : BASE_TRACKS[NET.lobby.track] + (NET.lobby.rev ? '_r' : '') + (NET.lobby.night ? '_n' : ''));
+const lobbyLaps = () => (lobbyGP() ? NET.lobby.gpLaps : NET.lobby.laps);
+const lobbyAi = () => (lobbyGP() ? Math.max(0, Math.min(NET.lobby.gpAi, 22 - NET.players.length)) : NET.lobby.ai);
+const lobbyPlayers = () => NET.players.map((p) => { const g = p.cfg.gp; const tm = g && TEAMS.find((x) => x.id === g.team); return { name: p.name, carId: p.cfg.carId, color: p.cfg.color, team: tm ? tm.id : null }; });
 function lobbyBroadcast() {
   if (NET.role !== 'host') return;
-  NET.host.broadcast({ t: 'lobby', code: NET.code, players: NET.players.map((p) => ({ name: p.name, carId: p.cfg.carId, color: p.cfg.color })), track: lobbyTrack(), laps: NET.lobby.laps, ai: NET.lobby.ai });
+  NET.host.broadcast({ t: 'lobby', code: NET.code, mode: NET.lobby.mode, players: lobbyPlayers(), track: lobbyTrack(), laps: lobbyLaps(), ai: lobbyAi() });
+}
+// stall och startdäck i rummet (värden uppdaterar sin egen post, gästen skickar till värden)
+const lum = (c) => ((c >> 16 & 255) * 0.3 + (c >> 8 & 255) * 0.59 + (c & 255) * 0.11) / 255;
+const teamLight = (tm) => [tm.c1, tm.c3, tm.c2].find((c) => lum(c) > 0.42) ?? 0xffffff;
+function gpLobbyItems() {
+  const g = gpSave();
+  const sync = () => { persist(); if (NET.role === 'host') { NET.players[0].cfg = myCfg(); lobbyBroadcast(); } else if (NET.client) NET.client.send({ t: 'hello', name: myName(), cfg: myCfg() }); };
+  const cyc = (d) => { const i = TEAMS.findIndex((t) => t.id === g.team); g.team = TEAMS[(i + d + TEAMS.length) % TEAMS.length].id; sync(); };
+  const tyre = (d) => { g.start = COMPOUND_ORDER[(COMPOUND_ORDER.indexOf(g.start) + d + 3) % 3]; sync(); };
+  return [
+    { label: 'DITT STALL', value: () => teamById(g.team).name.toUpperCase(), vcol: () => teamLight(teamById(g.team)), left: () => cyc(-1), right: () => cyc(1), ok: () => cyc(1), info: () => 'TVÅ SPELARE I SAMMA STALL BLIR STALLKAMRATER' },
+    { label: 'STARTDÄCK', value: () => COMPOUNDS[g.start].name, vcol: () => COMPOUNDS[g.start].color, left: () => tyre(-1), right: () => tyre(1), info: () => TYRE_INFO[g.start] },
+  ];
 }
 function openLobby() {
   G.state = 'lobby';
-  if (NET.role === 'host') {
+  if (NET.role === 'host' && lobbyGP()) {
+    const L = NET.lobby, ch = () => { lobbyBroadcast(); };
+    const tr = (d) => { L.gpTrack = (L.gpTrack + d + GP_ORDER.length) % GP_ORDER.length; ch(); };
+    const laps = (d) => { const i = LAP_OPTIONS.indexOf(L.gpLaps); L.gpLaps = LAP_OPTIONS[Math.max(0, Math.min(LAP_OPTIONS.length - 1, (i < 0 ? 1 : i) + d))]; ch(); };
+    G.menu = new Menu('RUM ' + NET.code, [
+      { label: 'LÄGE', value: () => 'GRAND PRIX', left: () => { L.mode = 'race'; openLobby(); }, right: () => { L.mode = 'race'; openLobby(); }, ok: () => { L.mode = 'race'; openLobby(); }, info: () => 'FORMEL 1 – DÄCK, DEPÅ OCH SLIPSTREAM. INGA VAPEN.' },
+      { label: 'BANA', value: () => TRACKS[GP_ORDER[L.gpTrack]].name.toUpperCase(), left: () => tr(-1), right: () => tr(1) },
+      { label: 'TID', value: () => (L.night ? 'NATT' : 'DAG'), left: () => { L.night = !L.night; ch(); }, right: () => { L.night = !L.night; ch(); }, ok: () => { L.night = !L.night; ch(); } },
+      { label: 'VARV', value: () => L.gpLaps, left: () => laps(-1), right: () => laps(1), info: () => (L.gpLaps >= 3 ? 'MINST ETT DEPÅSTOPP OCH TVÅ DÄCKBLANDNINGAR' : 'UNDER 3 VARV: INGET DEPÅKRAV') },
+      { label: 'DATORBILAR', value: () => lobbyAi(), left: () => { L.gpAi = Math.max(0, lobbyAi() - 1); ch(); }, right: () => { L.gpAi = Math.min(22 - NET.players.length, lobbyAi() + 1); ch(); }, info: () => `${NET.players.length + lobbyAi()} BILAR PÅ STARTGRIDDEN` },
+      ...gpLobbyItems(),
+      { label: 'STARTA LOPPET!', ok: () => { sfx('ok'); hostStart(); }, info: () => `${NET.players.length} SPELARE + ${lobbyAi()} DATORFÖRARE` },
+      { label: 'STÄNG RUMMET', ok: () => { sfx('back'); leaveOnline(); } },
+    ], { w: 230, back: () => leaveOnline(), rowH: 13 });
+    lobbyBroadcast();
+  } else if (NET.role === 'host') {
     const L = NET.lobby, ch = () => { lobbyBroadcast(); };
     G.menu = new Menu('RUM ' + NET.code, [
+      { label: 'LÄGE', value: () => 'VAPENLOPP', left: () => { L.mode = 'gp'; openLobby(); }, right: () => { L.mode = 'gp'; openLobby(); }, ok: () => { L.mode = 'gp'; openLobby(); }, info: () => 'BYT TILL GRAND PRIX FÖR FORMEL 1' },
       { label: 'BANA', value: () => TRACKS[BASE_TRACKS[L.track]].name.toUpperCase(), left: () => { L.track = (L.track + BASE_TRACKS.length - 1) % BASE_TRACKS.length; ch(); }, right: () => { L.track = (L.track + 1) % BASE_TRACKS.length; ch(); } },
       { label: 'RIKTNING', value: () => (L.rev ? 'BAKLÄNGES' : 'FRAMÅT'), left: () => { L.rev = !L.rev; ch(); }, right: () => { L.rev = !L.rev; ch(); }, ok: () => { L.rev = !L.rev; ch(); } },
       { label: 'TID', value: () => (L.night ? 'NATT' : 'DAG'), left: () => { L.night = !L.night; ch(); }, right: () => { L.night = !L.night; ch(); }, ok: () => { L.night = !L.night; ch(); } },
@@ -947,6 +986,11 @@ function openLobby() {
       { label: 'STÄNG RUMMET', ok: () => { sfx('back'); leaveOnline(); } },
     ], { w: 230, back: () => leaveOnline(), rowH: 14 });
     lobbyBroadcast();
+  } else if (NET.lobbyInfo && NET.lobbyInfo.mode === 'gp') {
+    G.menu = new Menu('RUM ' + NET.code, [
+      ...gpLobbyItems(),
+      { label: 'LÄMNA RUMMET', ok: () => { sfx('back'); leaveOnline(); } },
+    ], { w: 230, back: () => leaveOnline() });
   } else {
     G.menu = new Menu('RUM ' + NET.code, [
       { label: 'GARAGET', ok: () => { sfx('ok'); openGarage(() => { NET.client.send({ t: 'hello', name: myName(), cfg: myCfg() }); openLobby(); }); }, info: () => 'BYT FORDON INNAN VÄRDEN STARTAR' },
@@ -955,7 +999,46 @@ function openLobby() {
   }
   layoutTouch();
 }
+// vänta (högst 20 s) på att gästerna laddat klart innan nedräkningen går
+function holdForGuests(f1) {
+  const R = G.race; if (!f1) R.countdown = 3.6; R.hold = true;
+  const t0 = performance.now();
+  const wait = () => { if (G.race !== R) return; if (NET.players.every((p) => p.pid === 0 || NET.ready.has(p.pid)) || performance.now() - t0 > 20000) R.hold = false; else setTimeout(wait, 100); };
+  wait();
+}
+// Grand Prix online: varje spelare tar en plats i sitt stall, datorförare fyller resten
+function hostStartGP() {
+  const L = NET.lobby, track = lobbyTrack(), laps = L.gpLaps;
+  const taken = new Set(), humans = [];
+  for (const p of NET.players) {
+    const g = p.cfg.gp || { team: 'papaya', seat: 0, start: 'medium' };
+    let team = TEAMS.some((t) => t.id === g.team) ? g.team : 'papaya', seat = g.seat ? 1 : 0;
+    if (taken.has(team + seat)) seat ^= 1;
+    if (taken.has(team + seat)) [team, seat] = TEAMS.flatMap((t) => [[t.id, 0], [t.id, 1]]).find(([id, s]) => !taken.has(id + s));
+    taken.add(team + seat);
+    humans.push({ pid: p.pid, name: p.name, team, seat, start: COMPOUNDS[g.start] ? g.start : 'medium' });
+  }
+  let field = [];
+  TEAMS.forEach((tm) => tm.drivers.forEach(([name, code, skill], seat) => {
+    const h = humans.find((x) => x.team === tm.id && x.seat === seat);
+    if (h) field.push({ f1: true, team: tm.id, seat, name: h.name, code: h.name.replace(/[^A-ZÅÄÖ]/g, '').slice(0, 3) || 'SPE', skill: 0.8, compound: h.start, human: h.pid !== 0, isPlayer: false, pid: h.pid });
+    else field.push({ f1: true, team: tm.id, seat, name, code, skill: skill * 0.9, compound: 'medium', isPlayer: false });
+  }));
+  const keep = new Set(field.filter((c) => c.pid == null).sort(() => Math.random() - 0.5).slice(0, lobbyAi()));
+  field = field.filter((c) => c.pid != null || keep.has(c));
+  // startordning: bilens styrka och förarens skicklighet, lite slump
+  for (const c of field) c.q = teamById(c.team).perf * 0.7 + c.skill * 0.3 + Math.random() * 0.03;
+  field.sort((a, b) => b.q - a.q);
+  NET.pidCar = {};
+  field.forEach((c, k) => { if (c.pid != null) NET.pidCar[c.pid] = k; });
+  const clean = field.map(({ pid, q, ...c }) => c);
+  const gp = { track: GP_ORDER[L.gpTrack], night: L.night, laps, online: true };
+  NET.ready = new Set(); NET.inRace = true;
+  for (const p of NET.players) if (p.pid !== 0) NET.host.send(p.pid, { t: 'start', track, laps, f1: true, gp, cars: clean, me: NET.pidCar[p.pid] });
+  startRace({ track, laps, mode: 'race', f1: true, gp, wearLaps: laps, carsList: clean, myIndex: NET.pidCar[0], prizeMul: 0.4, online: true }).then(() => holdForGuests(true));
+}
 function hostStart() {
+  if (lobbyGP()) { hostStartGP(); return; }
   const L = NET.lobby;
   const track = lobbyTrack();
   const humans = NET.players.map((p) => ({ ...p.cfg, name: p.name, human: p.pid !== 0, isPlayer: false, pid: p.pid }));
@@ -969,13 +1052,7 @@ function hostStart() {
   const clean = list.map(({ pid, ...c }) => c);
   NET.ready = new Set(); NET.inRace = true;
   for (const p of NET.players) if (p.pid !== 0) NET.host.send(p.pid, { t: 'start', track, laps: L.laps, cars: clean.map((c) => ({ ...c, isPlayer: false })), me: NET.pidCar[p.pid] });
-  startRace({ track, laps: L.laps, mode: 'race', carsList: clean, myIndex: NET.pidCar[0], prizeMul: 0.4, online: true }).then(() => {
-    // vänta (högst 20 s) på att gästerna laddat klart innan nedräkningen går
-    const R = G.race; R.countdown = 3.6; R.hold = true;
-    const t0 = performance.now();
-    const wait = () => { if (G.race !== R) return; if (NET.players.every((p) => p.pid === 0 || NET.ready.has(p.pid)) || performance.now() - t0 > 20000) R.hold = false; else setTimeout(wait, 100); };
-    wait();
-  });
+  startRace({ track, laps: L.laps, mode: 'race', carsList: clean, myIndex: NET.pidCar[0], prizeMul: 0.4, online: true }).then(() => holdForGuests(false));
 }
 async function joinRoom(code) {
   G.state = 'loading'; G.msg = 'ANSLUTER TILL ' + code; G.loadP = 0.5;
@@ -983,9 +1060,9 @@ async function joinRoom(code) {
   try { await C.join(code); } catch (e) { NET.err = String(e.message || e).toUpperCase(); G.state = 'code'; NET.typed = ''; return; }
   Object.assign(NET, { role: 'guest', client: C, code, players: [], inRace: false });
   C.onMsg = (m) => {
-    if (m.t === 'lobby') { NET.players = m.players; NET.lobbyInfo = m; }
+    if (m.t === 'lobby') { const was = NET.lobbyInfo && NET.lobbyInfo.mode; NET.players = m.players; NET.lobbyInfo = m; if (was !== m.mode && G.state === 'lobby') openLobby(); }
     else if (m.t === 'busy' || m.t === 'full') { NET.err = m.t === 'busy' ? 'LOPPET HAR REDAN BÖRJAT' : 'RUMMET ÄR FULLT'; leaveOnline(true); }
-    else if (m.t === 'start') { NET.inRace = true; startRace({ track: m.track, laps: m.laps, mode: 'race', carsList: m.cars, myIndex: m.me, prizeMul: 0.4, online: true }); }
+    else if (m.t === 'start') { NET.inRace = true; startRace({ track: m.track, laps: m.laps, mode: 'race', carsList: m.cars, myIndex: m.me, prizeMul: 0.4, online: true, f1: !!m.f1, gp: m.gp, wearLaps: m.laps }); }
     else if (m.t === 's') { if (NET.mirror && G.race && G.race.mirror) NET.mirror.push(m); }
     else if (m.t === 'e') {
       const R = G.race;
@@ -994,6 +1071,7 @@ async function joinRoom(code) {
       NET.mirror.fxEvent(m.k, A, B, Cc, m.d, m.e);
       if (m.k !== 'done') onEvent(m.k, A, B, Cc, m.d, m.e);
     } else if (m.t === 'res') guestResults(m.order);
+    else if (m.t === 'gpres') guestGPResults(m.rows);
   };
   C.onClose = () => { if (NET.role === 'guest') { NET.err = 'VÄRDEN LÄMNADE RUMMET'; leaveOnline(true); } };
   C.send({ t: 'hello', name: myName(), cfg: myCfg() });
@@ -1013,6 +1091,20 @@ function guestResults(order) {
   });
   save.money += res.money || 0; persist();
   G.results = res; G.state = 'results';
+  NET.mirror = null;
+  startMusic('menu');
+}
+function guestGPResults(rows) {
+  const R = G.race;
+  if (!R) return;
+  NET.inRace = false;
+  stopEngines();
+  const me = NET.mirror ? NET.mirror.me : -1;
+  const rr = rows.map((r) => ({ ...r, name: r.idx === me ? 'DU' : r.nm, me: r.idx === me }));
+  const mine = rr.find((r) => r.me), place = mine ? rr.indexOf(mine) + 1 : rr.length;
+  const money = 100 + (mine ? mine.pts : 0) * 40;
+  save.money += money; persist();
+  G.results = { gpRace: true, cfg: G.cfg, rows: rr, place, money }; G.state = 'results';
   NET.mirror = null;
   startMusic('menu');
 }
@@ -1075,15 +1167,17 @@ function drawLobby(t) {
   panel(ctx, LX, 10, LW, Math.max(r.H, 150), 'rgba(20,16,40,0.8)', '#6a6488');
   drawText(ctx, 'RUMSKOD', LX + LW / 2, 18, { color: 0xd8d4e8, align: 'c' });
   drawText(ctx, NET.code, LX + LW / 2, 28, { big: true, scale: 3, grad: GRAD.gold, align: 'c' });
-  const info = NET.role === 'host' ? { track: lobbyTrack(), laps: NET.lobby.laps, ai: NET.lobby.ai } : NET.lobbyInfo;
-  if (info) drawText(ctx, `${trackName(info.track)} · ${info.laps} VARV · ${info.ai} DATORBILAR`, LX + LW / 2, 56, { color: 0xffe080, align: 'c' });
-  const list = NET.role === 'host' ? NET.players.map((p) => ({ name: p.name, carId: p.cfg.carId, color: p.cfg.color })) : NET.players;
+  const info = NET.role === 'host' ? { mode: NET.lobby.mode, track: lobbyTrack(), laps: lobbyLaps(), ai: lobbyAi() } : NET.lobbyInfo;
+  const gpMode = info && info.mode === 'gp';
+  if (info) drawText(ctx, `${gpMode ? 'GRAND PRIX · ' : ''}${trackName(info.track)} · ${info.laps} VARV · ${info.ai} ${gpMode ? 'DATORFÖRARE' : 'DATORBILAR'}`, LX + LW / 2, 56, { color: 0xffe080, align: 'c' });
+  const list = NET.role === 'host' ? lobbyPlayers() : NET.players;
   drawText(ctx, `SPELARE (${list.length})`, LX + 8, 70, { color: 0x9a94b0 });
   list.forEach((p, k) => {
     const y = 80 + k * 10;
-    ctx.fillStyle = '#1a1426'; ctx.fillRect(LX + 8, y - 1, 7, 7); ctx.fillStyle = css(p.color); ctx.fillRect(LX + 9, y, 5, 5);
+    const tm = gpMode && p.team ? teamById(p.team) : null;
+    ctx.fillStyle = '#1a1426'; ctx.fillRect(LX + 8, y - 1, 7, 7); ctx.fillStyle = css(tm ? tm.c1 : p.color); ctx.fillRect(LX + 9, y, 5, 5);
     drawText(ctx, `${p.name}${k === 0 ? ' (VÄRD)' : ''}`, LX + 20, y, { color: 0xffffff });
-    drawText(ctx, (CARS[p.carId] ? CARS[p.carId].name : '').toUpperCase(), LX + LW - 8, y, { color: 0xc8c0a0, align: 'r' });
+    drawText(ctx, (tm ? tm.name : CARS[p.carId] ? CARS[p.carId].name : '').toUpperCase(), LX + LW - 8, y, { color: 0xc8c0a0, align: 'r' });
   });
   if (NET.role === 'guest' && ((t * 2) | 0) % 2) drawText(ctx, 'VÄNTAR PÅ ATT VÄRDEN STARTAR...', LX + LW / 2, 80 + list.length * 10 + 8, { color: 0xd8d4e8, align: 'c' });
   if (NET.role === 'host' && list.length < 2) drawText(ctx, 'BE KOMPISARNA VÄLJA "GÅ MED I RUM"', LX + LW / 2, 80 + list.length * 10 + 8, { color: 0xd8d4e8, align: 'c' });
@@ -1092,7 +1186,7 @@ function drawLobby(t) {
 // ---------- paus ----------
 function pauseMenu() {
   const back = () => { G.state = 'race'; layoutTouch(); };
-  if (G.cfg && G.cfg.f1) return new Menu('PAUS', [
+  if (G.cfg && G.cfg.f1 && !NET.role) return new Menu('PAUS', [
     { label: 'FORTSÄTT', ok: () => { sfx('ok'); back(); } },
     { label: G.cfg.quali ? 'GÖR OM KVALET' : 'STARTA OM', ok: () => { sfx('ok'); startRace(G.cfg); } },
     G.cfg.quali ? { label: 'AVSLUTA KVALET', ok: () => { sfx('ok'); showResults(); }, info: () => 'BÄSTA VARVET HITTILLS RÄKNAS' }
@@ -1218,10 +1312,12 @@ function handle(a) {
   if (st === 'menu' || st === 'sub' || st === 'garage' || st === 'pause' || st === 'gp') { if (a === 'pause' && st === 'pause') { G.state = 'race'; layoutTouch(); return; } if (a !== 'pause') G.menu.action(a); return; }
   if (st === 'race' && G.race.f1) {
     const P = G.race.player;
+    if (P && !P.ai && G.race.mode === 'time' && (a === 'box' || a === 'tyre' || /^tyre[123]$/.test(a))) { sfx('deny'); G.hud.say('KVAL – DEPÅN ÖPPNAR FÖRST I LOPPET', 2, GRAD.gold, false); return; }
     if (!P || P.ai || G.race.mode === 'time') { if (a !== 'pause' && a !== 'reset') return; }
-    else if (a === 'box') { if (!P.pitPhase && !P.finished) { P.boxing = !P.boxing; sfx(P.boxing ? 'ok' : 'back'); G.hud.say(P.boxing ? 'BOXA, BOXA!' : 'STANNA UTE', 1.4, P.boxing ? GRAD.gold : GRAD.white, false); } return; }
+    else if (a === 'box') { if (!P.pitPhase && !P.finished) { if (NET.role === 'guest') NET.client.send({ t: 'box' }); P.boxing = !P.boxing; sfx(P.boxing ? 'ok' : 'back'); G.hud.say(P.boxing ? 'BOXA, BOXA!' : 'STANNA UTE', 1.4, P.boxing ? GRAD.gold : GRAD.white, false); } return; }
     else if (a === 'tyre' || /^tyre[123]$/.test(a)) {
       P.nextTyre = a === 'tyre' ? COMPOUND_ORDER[(COMPOUND_ORDER.indexOf(P.nextTyre) + 1) % 3] : COMPOUND_ORDER[+a[4] - 1];
+      if (NET.role === 'guest') NET.client.send({ t: 'tyre', c: P.nextTyre });
       sfx('menu'); G.hud.say('NÄSTA DÄCK: ' + COMPOUNDS[P.nextTyre].name, 1.2, GRAD.white, false); return;
     }
   }

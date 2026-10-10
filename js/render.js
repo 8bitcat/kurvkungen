@@ -4,6 +4,7 @@ import { renderCar, renderShadow, burnt, palette, lookKey, ANGLES } from './cars
 import { PICKUPS, MINE, BARREL } from './props.js?v=1';
 import { css } from './pix.js?v=1';
 import { COMPOUNDS, TEAMS } from './f1.js?v=1';
+import { pitOff, idxAt, relS } from './trackgeo.js?v=1';
 
 // ---------- spritebank för fordon (ritas vid behov, cachas) ----------
 const bank = new Map(), shadows = new Map();
@@ -69,6 +70,7 @@ export function drawRace(ctx, R, cam, vw, vh, t) {
     const sh = shadowSprite(c.model, c.ang);
     ctx.drawImage(sh, sx - sh.ox, sy - sh.oy);
   }
+  if (R.f1 && R.player && R.T.pit && R.mode === 'race') drawPitGuide(ctx, R, R.player, P, t);
   ctx.fillStyle = 'rgba(20,12,30,.3)';
   for (const p of R.picks) {
     if (p.respawn > 0) continue;
@@ -142,6 +144,42 @@ export function drawRace(ctx, R, cam, vw, vh, t) {
   return { x0, y0 };
 }
 
+// Grand Prix: när spelaren ska boxa blinkar vägen in i depån och stallets ruta
+function drawPitGuide(ctx, R, c, P, t) {
+  if (!(c.boxing || c.pitPhase === 'in')) return;
+  const T = R.T, PT = T.pit, side = PT.side;
+  const at = (s, lat) => { const i = idxAt(T, s); return P(T.X[i] + T.NX[i] * lat, T.Y[i] + T.NY[i] * lat, T.Z[i]); };
+  const latAt = (s) => { const po = pitOff(T, s); return po !== null ? po - side * 7 * Math.min(1, Math.max(0, (relS(T, s) - PT.s0) / PT.ramp)) : side * (T.HW[0] - 10); };
+  const poly = (pts, col) => { ctx.fillStyle = col; ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); };
+  // vandrande pilar från banan in i depåfilen + en blinkande skylt ovanför infarten
+  if (!c.pitPhase) {
+    for (let k = 0, s = PT.s0 - 230; s < PT.s0 + PT.ramp + 40; s += 34, k++) {
+      if (((t * 7 - k) % 5 + 5) % 5 > 2.6) continue;
+      const lat = latAt(s), back = s - 9, tip = s + 9;
+      // V-formad pil (chevron) med mörk kant
+      const v = (w, ds) => [at(back + ds, lat - w), at(s + ds, lat - w), at(tip + ds, lat), at(s + ds, lat + w), at(back + ds, lat + w), at(back + 8 + ds, lat)];
+      poly(v(11, -1.5), 'rgba(20,14,30,0.6)');
+      poly(v(9, 0), 'rgba(255,214,40,0.98)');
+    }
+    const [sx, sy] = at(PT.s0 + 30, side * (T.HW[0] + 6));
+    if (((t * 3) | 0) % 2 === 0) {
+      ctx.fillStyle = '#1a1426'; ctx.fillRect(sx - 18, sy - 44, 36, 15);
+      ctx.fillStyle = '#ffd628'; ctx.fillRect(sx - 17, sy - 43, 34, 13);
+      ctx.fillStyle = '#1a1426'; ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillText('DEPÅ', sx, sy - 33); ctx.textAlign = 'left';
+      ctx.fillStyle = '#ffd628'; for (let k = 0; k < 5; k++) ctx.fillRect(sx - 4 + k, sy - 28 + k, 9 - 2 * k, 1);
+    }
+  }
+  // stallets ruta i depån
+  if (((t * 3) | 0) % 2 === 0 || c.pitPhase === 'in') {
+    const box = PT.boxS[Math.max(0, c.teamIdx)], po = pitOff(T, box);
+    if (po !== null) {
+      const l0 = po + side * 0.5, l1 = po + side * 14.5;
+      ctx.strokeStyle = 'rgba(255,214,40,0.95)'; ctx.lineWidth = 2;
+      ctx.beginPath(); [at(box - 14, l0), at(box + 14, l0), at(box + 14, l1), at(box - 14, l1)].forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+  }
+}
 function drawCar(ctx, R, c, P, t) {
   if (c.inv > 0 && ((t * 12) | 0) % 2 && c.wreckT <= 0) return;
   const spr = carSprite(c.model, lookOf(c), c.ang, c.wreckT > 0);

@@ -81,6 +81,16 @@ export class Client {
 
 // ---------- tillståndsbilder ----------
 const r1 = (v) => Math.round(v * 10) / 10;
+export const PIT_PH = [null, 'in', 'stop', 'out'];
+const CO = ['soft', 'medium', 'hard'];
+// Grand Prix: däck, depå, DRS, skador och mållinjetid per bil
+function f1Snap(R) {
+  return R.cars.map((c) => [
+    CO.indexOf(c.tyre.c), Math.round(c.tyre.wear), PIT_PH.indexOf(c.pitPhase || null),
+    (c.boxing ? 1 : 0) | (c.drs ? 2 : 0) | (c.drsOk ? 4 : 0) | (c.wingLost ? 8 : 0) | (c.punct > 0 ? 16 : c.punct < 0 ? 32 : 0) | (c.penalty ? 64 : 0),
+    c.stops, Math.round(c.wing), CO.indexOf(c.nextTyre), r1(c.pitT || 0), CO.reduce((m, k, i) => m | (c.used.has(k) ? 1 << i : 0), 0), Math.round((c.tow || 0) * 10), r1(c.finishTime || 0),
+  ]);
+}
 export const ANIM_STATES = ['walk', 'idle', 'flee', 'fly', 'dead', 'flat', 'gone'];
 export function snapshot(R) {
   const cars = R.cars.map((c) => [
@@ -102,5 +112,7 @@ export function snapshot(R) {
     bo: R.bolts.map((b) => [r1(b.x0), r1(b.y0), r1(b.z0), r1(b.x1), r1(b.y1), r1(b.z1), Math.round(b.seed)]),
     an: R.animals.list.filter((a) => a.state !== 'gone').map((a) => [a.type, r1(a.x), r1(a.y), r1(a.z), Math.round(a.ang * 100) / 100, ANIM_STATES.indexOf(a.state), r1(a.frameT), (a.burnt ? 1 : 0) | (a.flyAway ? 2 : 0) | (a.idle > 0 ? 4 : 0)]),
     pk: R.picks.map((p) => (p.respawn > 0 ? 1 : 0)).join(''),
+    f1: R.f1 ? f1Snap(R) : null, li: R.lights || 0,
+    pw: R.f1 ? R.cars.map((c, k) => (c.pitPhase === 'stop' && c.pitWork ? [k, c.pitWork.map(([n, s]) => [n, r1(s)])] : null)).filter(Boolean) : null,
   };
 }

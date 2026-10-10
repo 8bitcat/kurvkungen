@@ -134,6 +134,8 @@ export function gpCar(R, c, dt) {
   if (!P || R.phase === 'countdown' || R.mode === 'time') return;
   const rs = relS(T, c.s);
   if (c.finished && !c.pitPhase) return;
+  // spelare (även online-gäster): punka eller tappad vinge ställer in BOX en gång – B ångrar
+  if (!c.ai && !c.pitPhase && (c.punct || c.wingLost) && !c.autoBox && !c.finished) { c.autoBox = true; c.boxing = true; }
   if (c.ai && !c.pitPhase) { const w = aiWantsPit(c, R); if (w && !c.boxing) { c.nextTyre = c.plan[Math.min(c.plan.length - 1, c.planStage + 1)][0]; } c.boxing = w; }
   // AI och spelare som ska in: styr mot depåinfarten före rampen
   if (!c.pitPhase && c.boxing && rs > P.s0 - 220 && rs < P.s0 + P.ramp) {
@@ -178,11 +180,11 @@ export function gpCar(R, c, dt) {
     c.pitT -= dt;
     if (c.pitT <= 0) {
       c.tyre = { c: c.nextTyre || 'medium', wear: 0 };
-      c.used.add(c.tyre.c); c.stops++; c.wing = 0; c.wingLost = false; c.punct = 0; c.boxing = false;
+      c.used.add(c.tyre.c); c.stops++; c.wing = 0; c.wingLost = false; c.punct = 0; c.boxing = false; c.autoBox = false;
       if (c.plan) { c.planStage++; const nx = c.plan[Math.min(c.plan.length - 1, c.planStage + 1)]; c.nextTyre = nx ? nx[0] : 'hard'; }
       else c.nextTyre = c.tyre.c === 'hard' ? 'medium' : 'hard';
       c.pitPhase = 'out';
-      R.events('pitdone', c);
+      R.events('pitdone', c, c.tyre.c);
     }
     return;
   } else if (c.pitPhase === 'out') {

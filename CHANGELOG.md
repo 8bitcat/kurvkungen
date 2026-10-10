@@ -1,5 +1,11 @@
 # Ändringar
 
+## 0.5.0 – 2026-10-10
+- Grand Prix online: värden väljer LÄGE = GRAND PRIX i rummet, alla väljer stall och startdäck, datorförare fyller ut till 22 bilar. Däck, depå, DRS, skador och startljus syns hos alla.
+- Depåmarkering: när du trycker B blinkar gula pilar in i depån, en DEPÅ-skylt står vid infarten och ditt stalls ruta blinkar. Avståndet till infarten står på skärmen och infarten blinkar på kartan.
+- Kvalet säger tydligt att du kör ensam tre varv och att loppet mot 21 bilar kommer sedan. B i kvalet ger besked om att depån öppnar i loppet.
+- Punka eller tappad framvinge ställer in BOX automatiskt (B ångrar) – även för gäster online.
+
 ## 0.4.0 – 2026-10-09
 - Nytt spelläge: Grand Prix. Formel 1 utan vapen med elva stall i dagens färger (egna namn), 22 bilar på startgridden.
 - Sex nya, större banor med långa raksträckor, stora svepande kurvor, curbs, grusfällor, depå med garage i stallens färger.
